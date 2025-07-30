@@ -67,46 +67,43 @@ def get_glitchy_times(
 	# select only times with SNR and end frequency above cutoff.
 	glitch_array = glitch_array[(glitch_array[:,2] > SNR_cutoff) & (glitch_array[:,6] > freq_cutoff)]
 
-	no_glitch = np.array([])
-	glitch = np.array([])
-	frequency_list = np.array([])
-	snr_list = np.array([])
+	#also cut glitches that are outside of valid_times
+	glitch_array = glitch_array[(glitch_array[:,0] > valid_times[0]) & (glitch_array[:,0] < valid_times[-1] + duration)] 
+
+	#no_glitch = np.array([])
+	glitch = []
+	frequency_list = []
+	snr_list = []
 	glitch_idxs = []
+	no_glitch = np.ones(len(valid_times), dtype=bool)
 
 	for i in range(len(glitch_array)):
-		#exclude is not backwards, the higher the index the *earlier* the glitch appears in the data. longest_waveform therefore excludes higher indices.
-		exclude = np.arange(int(glitch_array[i,3]-seconds_after - duration//2), int(glitch_array[i,4]+longest_waveform + seconds_before - duration//2))
+		idx_start = np.searchsorted(valid_times, int(glitch_array[i,3]-seconds_after - 1024//2))
+		idx_end =  np.searchsorted(valid_times,int(glitch_array[i,4]+longest_waveform + seconds_before - 1024//2))
+
+		if idx_start == 0 and idx_end == 0:
+			continue
+		no_glitch[idx_start:idx_end] = False
 		#TODO: expand include based on the length of the waveform. longer samples can be injected multiple times into a glitch.
 		include = int(glitch_array[i,0] - duration//2 +1)
 
-		no_glitch = np.hstack((no_glitch, exclude))
+		#no_glitch = np.hstack((no_glitch, exclude))
 
-		if include in valid_times:
-			glitch = np.hstack((glitch, include))
-			#deal with the edge case where the peak glitch frequency is below the cutoff
-			frequency_list = np.hstack((frequency_list, 
-							   np.array([glitch_array[i,5], glitch_array[i,1], glitch_array[i,6]]))) 
+		idx = np.searchsorted(valid_times, int(glitch_array[i,0] - 1024//2 +1))
+		if idx < len(valid_times) - 1:
+			if valid_times[idx] == int(glitch_array[i,0] - 1024//2 +1):
+				glitch_idxs.append(int(glitch_array[i,0] - 1024//2 +1))
+				frequency_list.append([glitch_array[i,5], glitch_array[i,1], glitch_array[i,6]])
+				snr_list.append(glitch_array[i,2])
 		
-			snr_list = np.hstack((snr_list, glitch_array[i,2]))
-			
-			glitch_idxs.append(i)
-		
-	no_glitch = np.unique(no_glitch)
-	
-	glitchmask = np.zeros(len(valid_times), dtype=bool)
-
-	mask = np.ones(len(valid_times), dtype=bool)
-	for i in range(len(valid_times)):
-		if valid_times[i] in no_glitch:
-			mask[i] = False
-
-	glitchless_times = valid_times[mask]
-	glitchy_times = glitch
+	#no_glitch = np.unique(no_glitch)
+	snr_list = np.array(snr_list)
+	glitchless_times = valid_times[no_glitch]
+	glitchy_times = np.array(glitch_idxs)
 
 	#frequency list now contains fstart and fend for a glitch
-
-	frequency_list[frequency_list < freq_cutoff] = freq_cutoff
-	frequency_list = frequency_list.reshape(-1,3)
+	frequency_list = np.array(frequency_list)
+	frequency_list = np.clip(frequency_list, freq_cutoff, None)
 
 	print("There are {} glitchy times and {} glitchless times in {}".format(len(glitchy_times), len(glitchless_times), glitch_file[-15:]))
 

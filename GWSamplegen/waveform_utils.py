@@ -348,3 +348,35 @@ def choose_templates(
         x -= x[-1] - len(template_bank_params) -1
 
     return x
+
+
+def maximum_f_lower(m1,m2):
+    #returns the maximum f_lower usable by PyCBC for generating a time domain waveform
+    #based on the observation that tau0/tau3 must be at least ~1.7
+    #Derived from Appendix B of https://arxiv.org/pdf/0706.4437
+
+    #mtsun is in seconds
+    mtsun = 4.92695275718945e-06
+    return 5/(32* np.pi**2 * (m1+m2) * mtsun) / 1.7
+
+def select_approximant(mass1,mass2, approximant_dict, domain="time"):
+    """Select the appropriate approximant based on the masses and the domain.
+    Note: this function does not check if an approximant is a valid time or frequency domain approximant."""
+    mtotal = mass1 + mass2
+
+    #if approximant_dict is just a string, do some additional checks before returning a string
+    if isinstance(approximant_dict, str):
+        if approximant_dict == "SEOBNRv4PHM" and mtotal < 9:
+            return "SEOBNRv4P"
+        elif approximant_dict == "SEOBNRv4P" and mtotal > 9:
+            return "SEOBNRv4PHM"
+        elif approximant_dict == "TaylorF2" and domain == "time":
+            return "SpinTaylorT4"
+        else:
+            return approximant_dict
+    #iterate through the dictionary, find the key with the lowest value that is greater than mtotal
+    current_key = 100000000
+    for key in approximant_dict.keys():
+        if int(key) > mtotal and current_key > int(key):
+            current_key = int(key)
+    return approximant_dict[str(current_key)]

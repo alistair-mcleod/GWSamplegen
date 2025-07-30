@@ -16,7 +16,7 @@ Functions for fetching, loading and selecting noise segments.
 
 import os
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Generator
 from pycbc.types.timeseries import TimeSeries
 from pycbc.types import FrequencySeries
 from pycbc.psd import interpolate, inverse_spectrum_truncation
@@ -25,6 +25,8 @@ from GWSamplegen.waveform_utils import t_at_f
 from pathlib import Path
 from importlib import resources as impresources
 from GWSamplegen import segments
+import h5py
+from gwpy.timeseries import TimeSeries as GWPYTimeSeries
 
 #TODO: handle arbitrary groups of interferometers. Assume each noise file in a dir has the same ifos
 
@@ -250,7 +252,7 @@ def fetch_noise_loaded(
 def generate_time_slides(
 	detector_data: List[int], 
 	min_distance: int
-) -> Tuple[int]:
+) -> Generator[Tuple[int, int], None, None]:
 	
 	"""Generates a list of time slides from a list of noise segments. Currently superseded by `two_det_timeslide`."""
 
@@ -278,8 +280,9 @@ def generate_time_slides(
 	
 def two_det_timeslide(
 		detector_data: List[List[int]], 
-		min_distance: int
-) -> Tuple[int]:
+		min_distance: int,
+		max_distance: int = 604800
+) -> Generator[Tuple[int], None, None]:
 	
 	"""A generator that returns a time slide from a list of valid noise times.
 	Avoids creating time slides that are too similar to previous time slides.
@@ -293,6 +296,10 @@ def two_det_timeslide(
 		
 	min_distance: int
 		Minimum distance between time slides. This is the minimum number of seconds between the start times of two noise segments.
+
+	max_distance: int
+		Maximum distance between time slides. This is the maximum number of seconds between the start times of two noise segments.
+		The default is 604800 seconds, or 1 week.
 	"""
 
 
@@ -311,7 +318,8 @@ def two_det_timeslide(
 			print("No more unique combinations available.")
 			return
 
-		if abs(detector_data[0][sample_indicies[0]] - detector_data[1][sample_indicies[1]]) >= min_distance:
+		separation = abs(detector_data[0][sample_indicies[0]] - detector_data[1][sample_indicies[1]])
+		if separation >= min_distance and separation <= max_distance:
 			if sample_indicies not in used_combinations:
 
 				used_combinations.add(sample_indicies)
@@ -473,7 +481,7 @@ def combine_seg_list(
 	good_segs = overlapping_intervals(good_segs_h1, good_segs_l1)
 
 	#remove segments shorter than min_duration
-	good_segs = [x for x in good_segs if x[1] - x[0] > min_duration]
+	good_segs = [x for x in good_segs if x[1] - x[0] >= min_duration]
 
 	return good_segs, good_segs_h1, good_segs_l1
 
@@ -578,3 +586,160 @@ def load_psd(
 										low_frequency_cutoff=f_lower)
 		
 	return psds
+
+
+def get_valid_noise_times_from_segments(
+		segment_tuples: List[Tuple[int,int]],
+		noise_len: int,
+		min_step: int = 1,
+		run: str = "O3a",
+		ifos: List[str] = ["H1", "L1"],
+		blacklisting = True,
+		f_lower = 30
+		) -> np.ndarray:
+	"""Get valid noise times from a list of segment tuples. Returns a list of valid GPS times.
+	Produces more general GPS time lists than `get_valid_noise_times`, but does not return valid
+	noise file paths. 
+	
+	Parameters
+	----------
+	segment_tuples: List[Tuple[int,int]]
+		List of tuples containing start and end GPS times of segments.
+	noise_len: int
+		Minimum length of noise segments to consider, in seconds.
+	min_step: int
+		If specified, will ensure that valid times are min_step seconds apart from each other.
+	run: str
+		The observation run to use for the noise files. TODO: add O4a and support for multiple runs.
+	ifos: List[str]
+		List of interferometers to consider. Currently only supports H1 and L1.
+	blacklisting: bool
+		If True, will remove any GPS times that are too close to detected events.
+	f_lower: int
+		Lower frequency cutoff for the PSDs, used for blacklisting."""
+	
+	valid_times = np.array([])
+	ifo_1 = "{}_{}.txt".format(ifos[0], run)
+	ifo_2 = "{}_{}.txt".format(ifos[1], run)
+	ifo_1 = impresources.files(segments).joinpath(ifo_1)
+	ifo_2 = impresources.files(segments).joinpath(ifo_2)
+
+	for start_time, end_time in segment_tuples:
+		segs, _, _ = combine_seg_list(ifo_1,ifo_2,start_time,end_time, min_duration=noise_len)
+
+		for seg in segs:
+			times = np.arange(seg[0], seg[1] - noise_len +1 , min_step)
+			if seg[1] - noise_len not in times:
+				if (seg[1] - noise_len) - times[-1] > 2 and min_step != 1:
+					times = np.append(times, seg[1] - noise_len)
+				else:
+					
+					print("ignoring a {} second segment".format((seg[1] - noise_len) - times[-1]))
+			valid_times = np.concatenate([valid_times, times])
+
+		if blacklisting:
+
+			gps_blacklist = load_gps_blacklist(f_lower)
+			n_blacklisted = len(np.where(np.isin(valid_times, gps_blacklist-noise_len//2))[0])
+			print("{} GPS times are too close to detected events and have been removed".format(n_blacklisted))
+			valid_times = np.delete(valid_times, np.where(np.isin(valid_times, gps_blacklist-noise_len//2)))
+	valid_times = np.sort(valid_times)
+	return valid_times
+
+
+def psd_preceding(noise, sample_rate, f_lower, delta_f, seconds_before = 10):
+	ret = noise[:int(len(noise)//2 - seconds_before*sample_rate)].psd(4).astype('complex128')
+	ret = interpolate(ret, delta_f)
+	ret = inverse_spectrum_truncation(ret, int(4 * sample_rate), low_frequency_cutoff=f_lower)
+	return ret
+
+def get_data_from_OzStar(gps_start, duration, ifo, verbose = False):
+	"""OzStar-specific function for fetching GW data."""
+	if gps_start != int(gps_start):
+		print("NOTE: you have specified a non-integer GPS time to fetch. Make sure this is what you want!")
+	if gps_start > 1249850209 and gps_start + duration < 1249850209 + 4096:
+		#edge case since one of the ifos was not in observing mode during GW190814
+		print("we're looking for GW190814 data")
+		fp = "/fred/oz016/alistair/GWSamplegen/noise/GW190814/GW190814_{}_4096.hdf5".format(ifo)
+		f = h5py.File(fp, 'r')
+		print("loaded")
+		data = f['strain']['Strain'][()]
+		start_idx = int((gps_start-1249850209)*4096)
+
+		data = data[start_idx:start_idx+duration*4096]
+		data = TimeSeries(data, delta_t = 1/4096, epoch = gps_start)
+		data = data.resample(1/2048)
+		return data
+	
+	root = "/datasets/LIGO/public/gwosc.osgstorage.org/gwdata"
+	#by looking in reverse order we avoid prematurely selecting the wrong chunk
+	ObsRuns = ["O3b", "O3a", "O2", "O1"]
+	for run in ObsRuns:
+		if verbose:
+			print("Checking run", run)
+		chunks = np.sort(np.array(os.listdir(os.path.join(root, run, "strain.4k", "hdf.v1", ifo)), dtype = int))
+		chunkstart = np.where((chunks <= int(gps_start)))[0]
+		chunkend = np.where((chunks >= int(gps_start+duration)))[0]
+
+		if len(chunkstart) == 0:
+			continue
+		else:
+			chunkstart = chunkstart[-1]
+			if len(chunkend) == 0:
+				chunkend = chunkstart
+				print("In last chunk of run")
+			else:
+				chunkend = chunkend[0] -1
+			if verbose:
+				print("Found chunk", chunkstart, chunkend)
+			break
+
+	if chunkend is None:
+		print("Bad GPS time! not found in any chunk")
+		return None
+
+	segments_start = np.sort(np.array(os.listdir(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkstart])))))
+	segments_end = np.sort(np.array(os.listdir(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkend])))))
+						
+	segments_split_start = np.array([seg.split("-") for seg in segments_start])
+	segments_split_end = np.array([seg.split("-") for seg in segments_end])
+
+	seg_idx = np.where(segments_split_start[:,2].astype('int') <= gps_start)[0][-1]
+	seg_idx_end = np.where(segments_split_end[:,2].astype('int') + 4096 >= gps_start+duration)[0][0]
+
+	if seg_idx != seg_idx_end:
+		simple = False
+	else:
+		simple = True
+
+	if simple:
+		dat = GWPYTimeSeries.read(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkstart]),segments_start[seg_idx]), 
+					format="hdf5.gwosc", start = gps_start, end = gps_start+duration)
+		dat = dat.to_pycbc()
+		dat = dat.resample(1/2048)
+	else:
+		dat_start = GWPYTimeSeries.read(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkstart]),segments_start[seg_idx]),
+				format="hdf5.gwosc", start = gps_start)
+		dat_end = GWPYTimeSeries.read(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkend]),segments_end[seg_idx_end]),
+				format="hdf5.gwosc", end = gps_start+duration)
+
+		dat_start = dat_start.to_pycbc()
+		dat_end = dat_end.to_pycbc()	
+
+		#resample
+		dat_start = dat_start.resample(1/2048)
+		dat_end = dat_end.resample(1/2048)
+		#pad the end of the first segment 
+		dat_start.append_zeros(len(dat_end))
+		#concatenate
+		dat_start[-len(dat_end):] = dat_end
+		dat = dat_start
+	#check if there are nans in the data
+	if np.any(np.isnan(dat.data)):
+		print("WARNING: Found NaNs in the data!")
+		print("GPS time:", gps_start)
+		print("Ifo:", ifo)
+	return dat
+
+def get_valid_blah():
+	return "blah"
