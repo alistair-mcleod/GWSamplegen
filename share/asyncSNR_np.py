@@ -7,57 +7,112 @@ import argparse
 import json
 import numpy as np
 from GWSamplegen.snr_utils_np import numpy_matched_filter, np_get_cutoff_indices
-from GWSamplegen.noise_utils import get_valid_noise_times, load_noise, fetch_noise_loaded, load_psd
+from GWSamplegen.noise_utils import get_valid_noise_times, load_noise, fetch_noise_loaded, load_psd, get_data_from_OzStar, psd_preceding
+from GWSamplegen.chisq_utils_np import reduced_chisquared_precomputed_SNR
+from GWSamplegen.waveform_utils import maximum_f_lower, select_approximant
 
 from pycbc.filter import highpass
 from pycbc.detector import Detector
 from pycbc.types.timeseries import TimeSeries
-from pycbc.waveform import get_fd_waveform, get_td_waveform
+from pycbc.waveform import get_fd_waveform, get_td_waveform, td_approximants, fd_approximants
 import pycbc.noise
-
-import time 
+from GWSamplegen.spectrogram_utils import *
+import time
 
 #from astropy.utils import iers
 #iers.conf.auto_download = False
 
-def get_projected_waveform_mp(args, waveform_duration=None):
-	ifos = ['H1', 'L1']
-	all_detectors = {'H1': Detector('H1'), 'L1': Detector('L1'), 'V1': Detector('V1'), 'K1': Detector('K1')}
+# def get_projected_waveform_mp(args, waveform_duration=None):
+# 	ifos = ['H1', 'L1']
+# 	all_detectors = {'H1': Detector('H1'), 'L1': Detector('L1'), 'V1': Detector('V1'), 'K1': Detector('K1')}
+# 	temp_approximant = select_approximant(args['mass1'], args['mass2'], td_approximant, domain = 'time')
+# 	# temp_approximant = td_approximant
+# 	# #change approximant, based on GWTC3
+# 	# if args['mass1'] + args['mass2'] > 9 and temp_approximant == "SEOBNRv4P":
+# 	# 	temp_approximant = "SEOBNRv4PHM"
+# 	# 	#print("using SEOBNRv4PHM")
+# 	# elif args['mass1'] + args['mass2'] < 9 and temp_approximant == "SEOBNRv4PHM":
+# 	# 	temp_approximant = "SEOBNRv4P"
 
-	if waveform_duration is not None:
-		hp, hc = get_td_waveform(mass1 = args['mass1'], mass2 = args['mass2'], 
-							 spin1z = args['spin1z'], spin2z = args['spin2z'],
-							 inclination = args['i'], distance = args['d'],
-							 approximant = args['approx'], f_lower = args["f_low"],
-							 delta_t = args["delta_t"], phase_order=args["phase_order"])
-		hp.prepend_zeros(int(waveform_duration/args["delta_t"]) - len(hp.data))
-		hc.prepend_zeros(int(waveform_duration/args["delta_t"]) - len(hc.data))
-		hp = TimeSeries(hp, delta_t=args["delta_t"])
-		hc = TimeSeries(hc, delta_t=args["delta_t"])
-	else:
-		hp, hc = get_td_waveform(mass1 = args['mass1'], mass2 = args['mass2'], 
-							 spin1z = args['spin1z'], spin2z = args['spin2z'],
-							 inclination = args['i'], distance = args['d'],
-							 approximant = td_approximant, f_lower = f_lower, delta_t = delta_t)
+# 	if temp_approximant == "SEOBNRv4P":
+# 		#f_lower_temp = args['f_lower']*0.75
+# 		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
+# 		delta_t_temp = delta_t/8
+# 	elif temp_approximant == "SEOBNRv4PHM":
+# 		#f_lower_temp = 4
+# 		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
+# 		delta_t_temp = delta_t/2
+# 	elif temp_approximant in ["EccentricTD", "EccentricFD", "TaylorF2Ecc"]:
+# 		#TODO: Add some method for specifying the reference frequency of the eccentric waveform...
+# 		f_lower_temp = min(20, maximum_f_lower(args['mass1'], args['mass2']))
+# 	else:
+# 		#f_lower_temp = args['f_lower']
+# 		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
+# 		delta_t_temp = delta_t
+# 	#print("f_lower:", f_lower_temp, "delta_t:", delta_t_temp)
+
+# 	if temp_approximant in td_approximants():
+# 		if waveform_duration is not None:
+# 			hp, hc = get_td_waveform(mass1 = args['mass1'], mass2 = args['mass2'], 
+# 								spin1x = args['spin1x'], spin2x = args['spin2x'],
+# 								spin1y = args['spin1y'], spin2y = args['spin2y'],
+# 								spin1z = args['spin1z'], spin2z = args['spin2z'],
+# 								inclination = args['i'], distance = args['d'],
+# 								approximant = temp_approximant, f_lower = args["f_low"],
+# 								delta_t = args["delta_t"], phase_order=args["phase_order"])
+# 			hp.prepend_zeros(int(waveform_duration/args["delta_t"]) - len(hp.data))
+# 			hc.prepend_zeros(int(waveform_duration/args["delta_t"]) - len(hc.data))
+# 			hp = TimeSeries(hp, delta_t=args["delta_t"])
+# 			hc = TimeSeries(hc, delta_t=args["delta_t"])
+# 		else:
+# 			try:
+# 				hp, hc = get_td_waveform(mass1 = args['mass1'], mass2 = args['mass2'], 
+# 									spin1x = args['spin1x'], spin2x = args['spin2x'],
+# 									spin1y = args['spin1y'], spin2y = args['spin2y'],
+# 									spin1z = args['spin1z'], spin2z = args['spin2z'],
+# 									inclination = args['i'], distance = args['d'],
+# 									approximant = temp_approximant, f_lower = f_lower_temp, delta_t = delta_t_temp)
+# 			except:
+# 				hp, hc = get_td_waveform(mass1 = args['mass1'], mass2 = args['mass2'], 
+# 									spin1x = args['spin1x'], spin2x = args['spin2x'],
+# 									spin1y = args['spin1y'], spin2y = args['spin2y'],
+# 									spin1z = args['spin1z'], spin2z = args['spin2z'],
+# 									inclination = args['i'], distance = args['d'],
+# 									approximant = temp_approximant, f_lower = f_lower_temp, delta_t = delta_t_temp/8)
+# 				print("ignore previous error, waveform generated successfully.")
+# 			hp = hp.resample(delta_t)
+# 			hc = hc.resample(delta_t)
 	
-	waveforms = np.empty(shape=(len(ifos), len(hp)))
+# 	elif temp_approximant not in td_approximants() and temp_approximant in fd_approximants():
+# 		hp_f, hc_f = get_fd_waveform(mass1 = args['mass1'], mass2 = args['mass2'],
+# 						spin1x = args['spin1x'], spin2x = args['spin2x'],
+# 						spin1y = args['spin1y'], spin2y = args['spin2y'],
+# 						spin1z = args['spin1z'], spin2z = args['spin2z'],
+# 						inclination = args['i'], distance = args['d'], eccentricity = args['eccentricity'],
+# 						approximant = temp_approximant, f_lower = f_lower_temp,
+# 						delta_f = delta_f, f_final = f_final)
+# 		#convert to time domain
+# 		hp = hp_f.to_timeseries(delta_t=delta_t)
+# 		hc = hc_f.to_timeseries(delta_t=delta_t)
+	
+# 	waveforms = np.empty(shape=(len(ifos), len(hp)))
 
-	for detector in ifos:
-		f_plus, f_cross = all_detectors[detector].antenna_pattern(
-			right_ascension=args['ra'], declination=args['dec'],
-			polarization=args['pol'],
-			t_gps=args['gps'][0])
+# 	for detector in ifos:
+# 		f_plus, f_cross = all_detectors[detector].antenna_pattern(
+# 			right_ascension=args['ra'], declination=args['dec'],
+# 			polarization=args['pol'],
+# 			t_gps=args['gps'][0])
 		
-		detector_signal = f_plus * hp + f_cross * hc
+# 		detector_signal = f_plus * hp + f_cross * hc
+# 		#detector_signal = detector_signal.resample(delta_t)
+# 		detector_index = ifos.index(detector)
+# 		waveforms[detector_index] = detector_signal
 
-		detector_index = ifos.index(detector)
-		waveforms[detector_index] = detector_signal
-
-	if waveform_duration is not None:
-		return waveforms
-	else:
-		return waveforms, hp.sample_times.data[-1]
-
+# 	if waveform_duration is not None:
+# 		return waveforms
+# 	else:
+# 		return waveforms, hp.sample_times.data[-1]
+from GWSamplegen.waveform_utils import get_projected_waveform_mp
 
 def run_batch(n):
 	#file_idx = templates_per_file * (np.ravel(template_ids[n:n+samples_per_batch])//templates_per_file)
@@ -74,9 +129,10 @@ def run_batch(n):
 	# print(f'delta f: {delta_f} , f_final: {f_final} , kmin: {kmin}, kmax: {kmax}')
 	
 	for i in range(n_templates * samples_per_batch):
+		temp_fd_approximant = select_approximant(batch_template_params[i,1], batch_template_params[i,2], fd_approximant, domain='frequency')
 		t_templates[i] = get_fd_waveform(mass1 = batch_template_params[i,1], mass2 = batch_template_params[i,2], 
 				   		spin1z = batch_template_params[i,3], spin2z = batch_template_params[i,4],
-						approximant = fd_approximant, f_lower = f_lower, delta_f = delta_f, f_final = f_final)[0].data[kmin:kmax]
+						approximant = temp_fd_approximant, f_lower = f_lower, delta_f = delta_f, f_final = f_final)[0].data[kmin:kmax]
 		  				#spin1z = 0, spin2z = 0,
 
 	#create this batch's strains
@@ -84,6 +140,9 @@ def run_batch(n):
 	strains = {}
 	for ifo in ifos:
 		strains[ifo] = np.zeros((samples_per_batch, duration*sample_rate))
+		#reset the PSDs
+		if noise_segments is not None:
+			psds[ifo] = []
 
 	for i in range(samples_per_batch):
 		#print("sample:", n+i, "template", t_ids[i])
@@ -93,23 +152,45 @@ def run_batch(n):
 				noise[j] = pycbc.noise.gaussian.noise_from_psd(duration*int(1/delta_t),delta_t,psds[ifos[j]],
 						   seed=seed+n+i*len(ifos)+j)
 		else:
-			noise = fetch_noise_loaded(segments,duration,gps[n+i],sample_rate,paths)
-
+			if noise_segments is None:
+				noise = fetch_noise_loaded(segments,duration,gps[n+i],sample_rate,paths)
+			else:
+				noise = []
+				for ifo in range(len(ifos)):
+					dat = get_data_from_OzStar(gps[n+i][ifo], duration, ifos[ifo])
+					noise.append(dat.data)
+					psds[ifos[ifo]].append(psd_preceding(dat, sample_rate, f_lower, delta_f).data[kmin:kmax])
+				noise = np.array(noise)
+				
 		if params["injection"][n+i]:
 			
 			args = {'mass1': params['mass1'][n+i], 'mass2': params['mass2'][n+i],
-	   				'spin1z': params['spin1z'][n+i], 'spin2z': params['spin2z'][n+i],	
-					'i': params['i'][n+i], 'd': params['d'][n+i],
+					'spin1x': params['spin1x'][n+i], 'spin2x': params['spin2x'][n+i],
+					'spin1y': params['spin1y'][n+i], 'spin2y': params['spin2y'][n+i],
+					'spin1z': params['spin1z'][n+i], 'spin2z': params['spin2z'][n+i],
+					'eccentricity': params['eccentricity'][n+i],
+					'inclination': params['i'][n+i], 'distance': params['d'][n+i],
 					'ra': params['ra'][n+i], 'dec': params['dec'][n+i],
-					'pol': params['pol'][n+i], 'gps': params['gps'][n+i]}
+					'pol': params['pol'][n+i], 'gps': params['gps'][n+i][0], "f_lower": f_lower, 
+					"f_final": f_final, "delta_t": delta_t, "td_approximant": td_approximant}
 			
 			temp, merger_offset = get_projected_waveform_mp(args)
-			merger_offset = int(merger_offset*sample_rate)
+			#merger_offset = int(merger_offset*sample_rate)
+			print("merger offset", merger_offset)
 						
 			for ifo in ifos:
+				#relevant quantities: 
+				#1. how long the waveform currently is. should be no greater than 512 seconds
+				#2. where the merger is. IF the merger is before the end of the strain AND the wform is 512 seconds long, we need to trim more
 				#this shouldn't be used, waveforms should be shorter than the noise.
-				w_len = np.min([len(temp[ifos.index(ifo)]), duration*sample_rate//2])
-				strains[ifo][i,duration*sample_rate//2 - w_len + offset + merger_offset: duration*sample_rate//2 + offset + merger_offset] = temp[ifos.index(ifo)]
+				w_len = np.min([len(temp[ifos.index(ifo)]), duration*sample_rate//2 + merger_offset])
+				excess_waveform = len(temp[ifos.index(ifo)]) - duration*sample_rate//2 - merger_offset
+				if excess_waveform < 0:
+					excess_waveform = 0
+				else:
+					print("trimming excess waveform, ", excess_waveform, "samples")
+				print("start, end: ", duration*sample_rate//2 - w_len + offset + merger_offset, duration*sample_rate//2 + offset + merger_offset)
+				strains[ifo][i,duration*sample_rate//2 - w_len + offset + merger_offset: duration*sample_rate//2 + offset + merger_offset] = temp[ifos.index(ifo)][excess_waveform:]
 				delta_t_h1 = all_detectors[ifo].time_delay_from_detector(other_detector=all_detectors[ifos[0]],
 													right_ascension=params['ra'][n+i],
 													declination=params['dec'][n+i],
@@ -124,8 +205,29 @@ def run_batch(n):
 				strains[ifo][i] = noise[ifos.index(ifo)]
 	#waveform_time += time.time() - start
 	ret = {}
+
 	for ifo in ifos:
+		if noise_segments is not None:
+			psds[ifo] = np.repeat(np.array(psds[ifo]), n_templates, axis=0)
+
 		strain = [TimeSeries(strains[ifo][i], delta_t=delta_t) for i in range(samples_per_batch)]
+		if save_strain:
+			fp_s[ifos.index(ifo)][n_templates*n:n_templates*samples_per_batch + n_templates*n] = strains[ifo].astype(np.float32)
+			#(i)*n_templates*samples_per_batch + n_templates*n:(i+1)*n_templates*samples_per_batch + n_templates*n
+			#fp_s[ifo][(i)*n_templates + n_templates*n:(i+1)*n_templates + n_templates*n] = strains[ifo][i]
+
+		if save_spectrograms:
+			for i in range(len(strains[ifo])):
+				#compute spectrograms
+				spec, re, im = process_single_series_complex(strains[ifo][i].astype(np.float32))
+				q, vitmap, lineaware = process_single_series_qtransform(strains[ifo][i].astype(np.float32))
+				fp_spec[ifos.index(ifo)][n_templates*n + i] = spec.astype(np.float32)
+				fp_re[ifos.index(ifo)][n_templates*n + i] = re.astype(np.float32)
+				fp_im[ifos.index(ifo)][n_templates*n + i] = im.astype(np.float32)
+				fp_q[ifos.index(ifo)][n_templates*n + i] = q.astype(np.float32)
+				fp_vitmap[ifos.index(ifo)][n_templates*n + i] = vitmap.astype(np.float32)
+				fp_lineaware[ifos.index(ifo)][n_templates*n + i] = lineaware.astype(np.float32)
+
 		strain = [highpass(i,f_lower).to_frequencyseries(delta_f=delta_f).data for i in strain]
 
 		strain = np.array(strain)[:,kmin:kmax]
@@ -136,9 +238,42 @@ def run_batch(n):
 		strain_np = np.repeat(strain, n_templates, axis=0)
 
 		x = numpy_matched_filter(strain_np, t_templates, psds[ifo], N, kmin, kmax, duration, delta_t = delta_t, flow = f_lower)
+
+		if reduced_chisq:
+			#multiply by the reduced chisquared time series
+			x *= reduced_chisquared_precomputed_SNR(x, t_templates, strain_np, psds[ifo], kmin, kmax, delta_f, num_bins = n_chisq_bins)
+
 		ret[ifo] = x[:,len(x[0])//2-seconds_before*sample_rate+offset:len(x[0])//2+seconds_after*sample_rate+offset]
 
 	return ret
+
+def create_memmap_file(file_path, shape, dtype=np.float32, data_type='SNR'):
+	"""
+	Create a memory-mapped file with the specified shape and data type.
+	
+	Args:
+		file_path (str): Path to the memmap file.
+		shape (tuple): Shape of the array.
+		dtype (str): Data type of the array.
+		data_type (str): Description of data being stored (e.g., 'SNR', 'strain').
+		
+	Returns:
+		np.memmap: Memory-mapped array.
+	"""
+	while True:
+		try:
+			if not os.path.exists(file_path):
+				# Create a new memmap file
+				fp = np.memmap(file_path, dtype=dtype, mode='w+', shape=shape, offset = 128)
+				print("Process creating {} memmap file".format(data_type))
+			else:
+				# Open existing memmap file
+				fp = np.memmap(file_path, dtype=dtype, mode='r+', shape=shape, offset = 128)
+				print("Process opened {} memmap file".format(data_type))
+			return fp
+		except:
+			print(f"Error accessing {file_path}. Retrying in 1 second...")
+			time.sleep(1)
 
 
 if __name__ == "__main__":
@@ -172,6 +307,26 @@ if __name__ == "__main__":
 			delta_t = config['delta_t']
 			project_dir = config['project_dir']
 			noise_dir = config['noise_dir']
+			if "noise_segments" in config:
+				noise_segments = config['noise_segments']
+			else:
+				noise_segments = None
+
+			if 'chisq' in config:
+				reduced_chisq = config['chisq']
+				n_chisq_bins = config['n_chisq_bins']
+				print("reduced chisq is", reduced_chisq)
+				print("n_chisq_bins is", n_chisq_bins)
+			else:
+				reduced_chisq = False
+			if "save_strain" in config:
+				save_strain = config['save_strain']
+			else:
+				save_strain = False
+			if "save_spectrograms" in config:
+				save_spectrograms = config['save_spectrograms']
+			else:
+				save_spectrograms = False
 			
 		for key, value in config.items():
 			print(key, value)
@@ -219,8 +374,11 @@ if __name__ == "__main__":
 	print("SAMPLES_PER_BATCH:",samples_per_batch)
 
 	###################################################load noise segments
-	valid_times, paths, files = get_valid_noise_times(noise_dir,0)
-	segments = load_noise(noise_dir)
+	if noise_segments is None:
+		_, paths, _ = get_valid_noise_times(noise_dir,0)
+		segments = load_noise(noise_dir)
+	else:
+		print("loading noise segments from", noise_segments)
 
 	params = np.load(project_dir + "/params.npy", allow_pickle=True).item(0)
 	template_ids = np.array(params['template_waveforms'])
@@ -250,36 +408,27 @@ if __name__ == "__main__":
 	psds = {}
 	t_psds = {}
 
-	psds = load_psd(noise_dir, duration, ifos, f_lower, int(1/delta_t))
+	if noise_segments is None:
+		psds = load_psd(noise_dir, duration, ifos, f_lower, int(1/delta_t))
+		for psd in psds:
+			psds[psd] = psds[psd][kmin:kmax]
+	else:
+		print("computing PSDs from noise segments")
+		for ifo in ifos:
+			psds[ifo] = []
 
-	for psd in psds:
-		psds[psd] = psds[psd][kmin:kmax]
+	fp = create_memmap_file(project_dir + "/" + fname, shape=(len(ifos),n_templates*len(params['mass1']), (seconds_before + seconds_after)*sample_rate))
 
-	#for i in range(len(ifos)):
-	#	t_psds[ifos[i]] = tf.convert_to_tensor(psds[ifos[i]], dtype=tf.complex128)
-	#	t_psds[ifos[i]] = tf.slice(t_psds[ifos[i]], begin=[kmin], size=[kmax-kmin])
+	if save_strain:
+		fp_s = create_memmap_file(project_dir + "/strain.npy", shape=(len(ifos),n_templates*len(params['mass1']), duration*sample_rate), data_type='strain')
 
-	while True:
-		try:
-			#create an array on disk that we will save the samples to.
-			if not os.path.exists(project_dir + "/" + fname):
-				print("FILE DOES NOT EXIST, PROCESS {} IS CREATING IT".format(index))
-				#TODO: make it so we can choose between absolute value and complex64
-				#fp = np.memmap(project_dir + "/" + fname, dtype=np.complex64, mode='w+', 
-				#			shape=(len(ifos),n_templates*len(params['mass1']), (seconds_before + seconds_after)*sample_rate), offset=128)
-				fp = np.memmap(project_dir + "/" + fname, dtype=np.float32, mode='w+', 
-							shape=(len(ifos),n_templates*len(params['mass1']), (seconds_before + seconds_after)*sample_rate), offset=128)
-			else:
-				print("FILE EXISTS, PROCESS {} IS LOADING IT".format(index))
-				#fp = np.memmap(project_dir + "/" + fname, dtype=np.complex64, mode='r+', 
-				#			shape=(len(ifos),n_templates*len(params['mass1']), (seconds_before + seconds_after)*sample_rate), offset=128)
-				fp = np.memmap(project_dir + "/" + fname, dtype=np.float32, mode='r+', 
-							shape=(len(ifos),n_templates*len(params['mass1']), (seconds_before + seconds_after)*sample_rate), offset=128)
-
-			break
-		except:
-			print("error on file creation, waiting a bit")
-			time.sleep(1)
+	if save_spectrograms:
+		fp_spec = create_memmap_file(project_dir + "/spectrogram.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram')
+		fp_re = create_memmap_file(project_dir + "/spectrogram_re.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram_re')
+		fp_im = create_memmap_file(project_dir + "/spectrogram_im.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram_im')
+		fp_q = create_memmap_file(project_dir + "/spectrogram_q.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram_q')
+		fp_vitmap = create_memmap_file(project_dir + "/spectrogram_vitmap.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram_vitmap')
+		fp_lineaware = create_memmap_file(project_dir + "/spectrogram_lineaware.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram_lineaware')
 
 	#detectors = {'H1': Detector('H1'), 'L1': Detector('L1'), 'V1': Detector('V1'), 'K1': Detector('K1')}
 	print("file will have shape ", fp.shape)
@@ -318,7 +467,8 @@ if __name__ == "__main__":
 		#TODO: ensure we can handle the case where the number of samples is not divisible by samples_per_batch,
 		#and where samples_per_batch*mp_batch is not divisible by samples_per_file
 
-		for i in range(mp_batch):
+		#for i in range(mp_batch):
+		for i in range(len(results)):
 			#t_templates, strains = results[i]
 			for ifo in ifos:
 				#TODO: again, fix abs vs complex
@@ -347,6 +497,43 @@ if __name__ == "__main__":
 	header = np.lib.format.header_data_from_array_1_0(fp)
 	with open(project_dir + "/" + fname, 'r+b') as f:
 		np.lib.format.write_array_header_1_0(f, header)
+
+	if save_strain:
+		fp_s.flush()
+		header = np.lib.format.header_data_from_array_1_0(fp_s)
+		with open(project_dir + "/strain.npy", 'r+b') as f:
+			np.lib.format.write_array_header_1_0(f, header)
+
+	if save_spectrograms:
+		fp_spec.flush()
+		header = np.lib.format.header_data_from_array_1_0(fp_spec)
+		with open(project_dir + "/spectrogram.npy", 'r+b') as f:
+			np.lib.format.write_array_header_1_0(f, header)
+
+		fp_re.flush()
+		header = np.lib.format.header_data_from_array_1_0(fp_re)
+		with open(project_dir + "/spectrogram_re.npy", 'r+b') as f:
+			np.lib.format.write_array_header_1_0(f, header)
+
+		fp_im.flush()
+		header = np.lib.format.header_data_from_array_1_0(fp_im)
+		with open(project_dir + "/spectrogram_im.npy", 'r+b') as f:
+			np.lib.format.write_array_header_1_0(f, header)
+
+		fp_q.flush()
+		header = np.lib.format.header_data_from_array_1_0(fp_q)
+		with open(project_dir + "/spectrogram_q.npy", 'r+b') as f:
+			np.lib.format.write_array_header_1_0(f, header)
+
+		fp_vitmap.flush()
+		header = np.lib.format.header_data_from_array_1_0(fp_vitmap)
+		with open(project_dir + "/spectrogram_vitmap.npy", 'r+b') as f:
+			np.lib.format.write_array_header_1_0(f, header)
+
+		fp_lineaware.flush()
+		header = np.lib.format.header_data_from_array_1_0(fp_lineaware)
+		with open(project_dir + "/spectrogram_lineaware.npy", 'r+b') as f:
+			np.lib.format.write_array_header_1_0(f, header)
 
 	#pool.close()
 

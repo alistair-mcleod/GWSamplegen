@@ -6,17 +6,17 @@ import multiprocessing as mp
 import json
 import os
 import time
-from typing import Union
+#from typing import Union
+import gc
 
 import numpy as np
-
-from pycbc.filter import sigma, match
+from pycbc.filter import sigma, match, matchedfilter
 from pycbc.detector import Detector
-from pycbc.waveform import get_td_waveform
+from pycbc.waveform import get_td_waveform, get_fd_waveform, td_approximants, fd_approximants
 from pycbc.types import FrequencySeries, TimeSeries
 from pycbc.psd import interpolate
 from pycbc.inject.inject import legacy_approximant_name
-
+import bilby
 from bilby.core.prior import (
     Cosine,
     PowerLaw,
@@ -27,10 +27,13 @@ from bilby.core.prior import (
 )
 from bilby.gw.prior import UniformComovingVolume, UniformSourceFrame
 
-from GWSamplegen.waveform_utils import load_pycbc_templates, choose_templates_new, chirp_mass
+from GWSamplegen.waveform_utils import load_pycbc_templates, choose_templates_new, chirp_mass, maximum_f_lower, select_approximant, t_at_f,fast_point_distance
 from GWSamplegen.glitch_utils import get_glitchy_times, get_glitchy_gps_time
 from GWSamplegen.noise_utils import two_det_timeslide, get_valid_noise_times, load_psd
-from asyncSNR_np import get_projected_waveform_mp
+from GWSamplegen.prior_utils import constructPrior, TriUniform, draw_mass_pair_power, draw_spin_isotropic, sample_masses_from_cm_q
+from GWSamplegen.template_utils import find_templates
+#from asyncSNR_np import get_projected_waveform_mp
+from GWSamplegen.waveform_utils import get_projected_waveform_mp
 
 import astropy.units as u
 import astropy.cosmology as cosmo
@@ -38,31 +41,47 @@ from astropy.cosmology import FlatwCDM
 from astropy.utils import iers
 iers.conf.auto_download = False
 
-def constructPrior(
-    prior: Union[Uniform, Cosine, UniformComovingVolume, PowerLaw, UniformSourceFrame], 
-    min: float, 
-    max: float,
-    **kwargs
-) -> PriorDict:
-    #generic constructor for bilby priors. 
-    
-    # if prior == PowerLaw:
-    #     kwargs['alpha'] = powerlaw_alpha
 
-    if max <= min:
-        return max
-    else:
-        return prior(minimum = min, maximum = max, **kwargs)
-    
-    
+
+
 def get_snr(args):
-    hp, hc = get_td_waveform(
-        mass1 = args['mass1'], mass2 = args['mass2'], 
-        spin1z = args['spin1z'], spin2z = args['spin2z'],
-        inclination = args['i'], distance = args['d'],
-        approximant = td_approximant, f_lower = f_lower, delta_t = delta_t
-    )
     
+    temp_td = select_approximant(args['mass1'], args['mass2'], td_approximant, domain='time')
+    temp_f_lower = min(f_lower, maximum_f_lower(args['mass1'], args['mass2']))
+    if temp_td in ["TaylorF2Ecc", "EccentricFD", "EccentricTD"]:
+        temp_f_lower = 20
+
+    if temp_td in td_approximants():
+        
+        try:
+            hp, hc = get_td_waveform(
+                mass1 = args['mass1'], mass2 = args['mass2'],
+                spin1x = args['spin1x'], spin2x = args['spin2x'],
+                spin1y = args['spin1y'], spin2y = args['spin2y'], 
+                spin1z = args['spin1z'], spin2z = args['spin2z'],
+                inclination = args['i'], distance = args['d'],
+                approximant = temp_td, f_lower = temp_f_lower, delta_t = delta_t/4
+            )
+        except:
+            hp, hc = get_td_waveform(
+                mass1 = args['mass1'], mass2 = args['mass2'], 
+                spin1x = args['spin1x'], spin2x = args['spin2x'],
+                spin1y = args['spin1y'], spin2y = args['spin2y'],
+                spin1z = args['spin1z'], spin2z = args['spin2z'],
+                inclination = args['i'], distance = args['d'],
+                approximant = temp_td, f_lower = temp_f_lower, delta_t = delta_t / 8, f_final = 8/delta_t
+            )
+        #downsample to the correct delta_t
+        hp = hp.resample(delta_t)
+        hc = hc.resample(delta_t)
+
+    elif temp_td not in td_approximants() and temp_td in fd_approximants():
+        hp_f, hc_f = get_fd_waveform(
+            args, inclination=args['i'], distance=args['d'],
+            approximant = temp_td, f_lower = temp_f_lower, delta_f = 1/duration, f_final = 1024)
+        hp = hp_f.to_timeseries(delta_t=delta_t)
+        hc = hc_f.to_timeseries(delta_t=delta_t)
+        
     snrs = {}
 
     for detector in detectors:
@@ -80,6 +99,61 @@ def get_snr(args):
         snrs[detector] = snr
 
     return snrs
+
+
+
+# def get_snr(args):
+#     if td_approximant == "SEOBNRv4PHM" and args['mass1'] + args['mass2'] < 9:
+#         temp_td = "SEOBNRv4P"
+#     elif td_approximant == "SEOBNRv4P" and args['mass1'] + args['mass2'] > 9:
+#         temp_td = "SEOBNRv4PHM"
+#     else:
+#         temp_td = td_approximant
+#     temp_td = waveform_approximant
+#     if temp_td == "TaylorF2":
+#         temp_td = "SpinTaylorT4"
+#     try:
+#         hp, hc = get_td_waveform(
+#             mass1 = args['mass1'], mass2 = args['mass2'], 
+#             spin1z = args['spin1z'], spin2z = args['spin2z'],
+#             inclination = args['i'], distance = args['d'],
+#             approximant = temp_td, f_lower = f_lower, delta_t = delta_t
+#         )
+#     except:
+#         try:
+#             hp, hc = get_td_waveform(
+#                 mass1 = args['mass1'], mass2 = args['mass2'], 
+#                 spin1z = args['spin1z'], spin2z = args['spin2z'],
+#                 inclination = args['i'], distance = args['d'],
+#                 approximant = temp_td, f_lower = 6, delta_t = delta_t
+#             )
+#         except:
+#             hp, hc = get_td_waveform(
+#                 mass1 = args['mass1'], mass2 = args['mass2'], 
+#                 spin1z = args['spin1z'], spin2z = args['spin2z'],
+#                 inclination = args['i'], distance = args['d'],
+#                 approximant = temp_td, f_lower = 10, delta_t = delta_t / 8, f_final = 8/delta_t
+#             )
+#             #downsample to the correct delta_t
+#         hp = hp.resample(delta_t)
+    
+#     snrs = {}
+
+#     for detector in detectors:
+#         f_plus, f_cross = all_detectors[detector].antenna_pattern(
+#             right_ascension=args['ra'], declination=args['dec'],
+#             polarization=args['pol'],
+#             t_gps=args['gps'][0])
+        
+#         detector_signal = f_plus * hp + f_cross * hc
+
+#         snr = sigma(htilde=detector_signal,
+#                     psd=interpolate(psds[detector], delta_f=detector_signal.delta_f),
+#                     low_frequency_cutoff=f_lower)
+        
+#         snrs[detector] = snr
+
+#     return snrs
 
 
 def get_template(task):
@@ -111,7 +185,7 @@ def get_template(task):
 
 def get_match(task):
     args = task[0]
-    h1, l1 = get_projected_waveform_mp(args, waveform_duration=args["duration"])
+    h1 = get_projected_waveform_mp(args)[0]
     h1_fs = TimeSeries(h1, delta_t=args["delta_t"]).to_frequencyseries()
     
     overlaps = []
@@ -213,40 +287,71 @@ def choose_templates_match(overlaps, n_templates, all_network_snrs):
     return chosen_templates, chosen_overlaps
 
 
-# Function from LVC Rates & Populations Group
-def powerlaw_setup(minv, maxv, alpha):
-    a = (maxv / minv) ** (alpha + 1.) - 1.
-    b = 1. / (alpha + 1.)
-    return a, b
 
 
-# Function from LVC Rates & Populations Group
-def powerlaw_sample(x_rand, minv, a, b):
-    return minv * (1. + a * x_rand) ** b
+def get_overlaps(args):
+    # if td_approximant == "SEOBNRv4PHM" and args['mass1'] + args['mass2'] < 9:
+    #     temp_td_approximant = "SEOBNRv4P"
+    # elif td_approximant == "SEOBNRv4P" and args['mass1'] + args['mass2'] > 9:
+    #     temp_td_approximant = "SEOBNRv4PHM"
+    # else:
+    #     temp_td_approximant = td_approximant
+    temp_td_approximant = select_approximant(args['mass1'], args['mass2'], td_approximant, domain='time')
+
+    if temp_td_approximant in td_approximants():
+        hp,_ = get_td_waveform(approximant=temp_td_approximant, mass1=args['mass1'], mass2=args['mass2'],
+                            spin1x=args['spin1x'], spin2x=args['spin2x'],
+                            spin1y=args['spin1y'], spin2y=args['spin2y'],
+                            spin1z=args['spin1z'], spin2z=args['spin2z'],
+                            f_lower=10, delta_t=1/(8*2048))
+
+        hp = hp.resample(delta_t)
+        if -hp.sample_times[0] > duration:
+            print("shortening sample")
+            chop = np.argmin(np.abs(hp.sample_times + duration-10))
+            hp.start_time = hp.sample_times[chop]
+            hp.data = hp.data[chop:]
+            print("New sample delta f is ", 1/hp.delta_f)
+        try:
+            #print("trying to convert to frequency series")
+            hp_f = hp.to_frequencyseries(delta_f=1/duration)
+        except:
+            print("failed to convert to freq. series on sample ", args)
+            print("masses were ", args['mass1'], args['mass2'])
+        del hp
+    elif temp_td_approximant not in td_approximants() and temp_td_approximant in fd_approximants():
+        print("TD approximant is FD only. No need to convert.")
+        hp_f, _ = get_fd_waveform(args, approximant=temp_td_approximant, f_lower=20, delta_f=1/duration)
 
 
-# Function from LVC Rates & Populations Group
-def draw_mass_pair_power(m1_min, m1_max, m2_min, m2_max, m1pow, m2pow):
-    a1, b1 = powerlaw_setup(m1_min, m1_max, m1pow)
-    while True:
-        x1 = np.random.random()
-        x2 = np.random.random()
-        m1 = powerlaw_sample(x1, m1_min, a1, b1)
-        if m2_max < m1:
-            a2, b2 = powerlaw_setup(m2_min, m2_max, m2pow)
-        else:
-            a2, b2 = powerlaw_setup(m2_min, m1, m2pow)
-        m2 = powerlaw_sample(x2, m2_min, a2, b2)
-        yield m1, m2
+    olaps = []
+    for j in range(len(args['template_waveforms'])):
+        idx = int(args['template_waveforms'][j])
+        temp_fd_approximant = select_approximant(template_bank_params[idx][1], template_bank_params[idx][2], fd_approximant, domain='frequency')
+        hpt_f, _ = get_fd_waveform(mass1 = template_bank_params[idx][1], mass2 = template_bank_params[idx][2],
+                                spin1z = template_bank_params[idx][3], spin2z = template_bank_params[idx][4],
+                                f_lower = 10, delta_f = 1/1024, f_final = 2048*4, approximant = temp_fd_approximant)
+        hpt_f.resize(len(hp_f))
+        olap = matchedfilter.match(hp_f, hpt_f, psd=psds['L1'], low_frequency_cutoff=f_lower, high_frequency_cutoff=1024)[0]
+        olaps.append(olap)
 
+        del hpt_f
+    del hp_f
+    gc.collect()
+    print("overlaps for injection ", args['mass1'], args['mass2'], " are ", olaps)
+    return olaps
 
 
 #import args from a config file if it exists
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--config-file', type=str, default=None)
+parser.add_argument('--configfile', type=str, default=None)
+parser.add_argument('--jobid', type=int, default=None)
+parser.add_argument('--njobs', type=int, default=None)
 args = parser.parse_args()
-config_file = args.config_file
+config_file = args.configfile
+job_id = args.jobid
+n_jobs = args.njobs
 
 
 #start of user-defined params and param ranges. 
@@ -432,6 +537,22 @@ if config_file:
         mass1_max = config['mass1_max']
         mass2_min = config['mass2_min']
         mass2_max = config['mass2_max']
+        if "chirp_mass_prior" in config:
+            chirp_mass_prior = eval(config['chirp_mass_prior'])
+            chirp_mass_power = config['chirp_mass_power'] 
+            chirp_mass_min = config['chirp_mass_min']
+            chirp_mass_max = config['chirp_mass_max']
+            mass_ratio_prior = eval(config['mass_ratio_prior'])
+            mass_ratio_power = config['mass_ratio_power']
+        else:
+            chirp_mass_prior = None
+        if "SNR_prior" in config:
+            SNR_prior = eval(config['SNR_prior'])
+            SNR_power = config['SNR_power']
+            SNR_min = config['SNR_min']
+            SNR_max = config['SNR_max']
+        else:
+            SNR_prior = None
         spin1zprior = eval(config['spin1zprior'])
         spin2zprior = eval(config['spin2zprior'])
         spin1z_min = config['spin1z_min']
@@ -457,7 +578,63 @@ if config_file:
         pol_prior = eval(config['pol_prior'])
         pol_min = config['pol_min']
         pol_max = config['pol_max']
+
+        if "spin_type" in config:
+            spin_type = config['spin_type']
+        else:
+            spin_type = "Aligned"
+            print("Set spin_type in your params file! defaulting to Aligned")
+
+        if "eccentricity_prior" in config:
+            eccentricity_prior = eval(config['eccentricity_prior'])
+            eccentricity_power = config['eccentricity_power']
+            eccentricity_min = config['eccentricity_min']
+            eccentricity_max = config['eccentricity_max']
+        else:
+            eccentricity_prior = None
+
+        if bank_type == "pycbc_smart_match":
+            metricParam_source = config['metricParam_source']
+            if "smart_match_limit" in config:
+                smart_match_limit = config['smart_match_limit']
+            else:
+                smart_match_limit = 100
+            print("using smart match limit: ", smart_match_limit)
         
+        if bank_type == "pycbc":
+            if "pycbc_match_limit" in config:
+                pycbc_match_limit = config['pycbc_match_limit']
+            else:
+                pycbc_match_limit = 100
+            print("using pycbc match limit: ", pycbc_match_limit)
+
+        if "template_dir" in config:
+            template_dir = config['template_dir']
+        else:
+            template_dir = "template_banks"
+
+        if "noise_segments" in config:
+            #NOTE: this way of loading noise segments is preferred, as it does not require that
+            #all noise and associated glitch files are saved in the same directory.
+            #However, using this requires that you are running this code on the OzStar cluster.
+            #This will eventually work elsewhere but for now it is OzStar only.
+            noise_segments = config['noise_segments']
+        else:
+            noise_segments = None
+
+        if "template_mass1_min" in config:
+            template_mass1_min = config['template_mass1_min']
+            template_mass1_max = config['template_mass1_max']
+            template_mass2_min = config['template_mass2_min']
+            template_mass2_max = config['template_mass2_max']
+            print("using template mass constraints", template_mass1_min, template_mass1_max, 
+                  template_mass2_min, template_mass2_max)
+
+        if not os.path.exists(project_dir):
+            os.makedirs(project_dir, exist_ok=True)
+        with open(os.path.join(project_dir, "args.json"), 'w') as f:
+            #save a copy of the args to the project directory
+            json.dump(config, f, sort_keys=False, indent=4)
     for key, value in config.items():
         print(key, value)
 
@@ -465,7 +642,25 @@ if template_selection not in ["overlap", "snr", "random", "best"]:
     print("Invalid `template_selection` method. Please choose either 'overlap' or 'snr'.")
     exit()
 
-waveforms_per_batch = n_signal_samples//10
+n_signal_samples_total = n_signal_samples
+n_noise_samples_total = n_noise_samples
+
+if job_id is not None:
+    print("job id: ", job_id, "of ", n_jobs)
+    #need to divide the number of signal and noise samples by the number of jobs
+    if job_id == n_jobs-1:
+        n_signal_samples = int(n_signal_samples / n_jobs) +  n_signal_samples % n_jobs
+        n_noise_samples = int(n_noise_samples / n_jobs) +  n_noise_samples % n_jobs
+    else:
+        n_signal_samples = int(n_signal_samples / n_jobs)
+        n_noise_samples = int(n_noise_samples / n_jobs)
+    print("n_signal_samples: ", n_signal_samples)
+    print("n_noise_samples: ", n_noise_samples)
+else:
+    print("running as standalone job")
+    job_id = 0
+
+waveforms_per_batch = max(min(n_signal_samples//5, 1000), 100)
 
 if not os.path.exists(noise_dir):
     raise ValueError("Noise directory does not exist. Generate a directory of noise to use with this dataset.")
@@ -482,43 +677,113 @@ with open(noise_dir + '/args.json') as f:
         raise ValueError("""Noise delta_t does not match specified delta_t.
                              Check noise directory and config file.""")
 
+import h5py
+from pycbc.tmpltbank.coord_utils import get_cov_params
+def load_pycbc_templates_from_hdf(hdf_file):
+    f = h5py.File(hdf_file, 'r')
+    templates = np.zeros((len(f['mass1']),6))
+    templates[:,1] = f['mass1'][()]
+    templates[:,2] = f['mass2'][()]
+    templates[:,3] = f['spin1z'][()]
+    templates[:,4] = f['spin2z'][()]
+    templates[:,5] = f['f_lower'][()]
+    templates[:,0] = chirp_mass(templates[:,1], templates[:,2])
+
+    #sort by chirp mass
+    templates = templates[templates[:,0].argsort()]
+    print("Number of templates: ", len(templates))
+    #for i in range(len(f['mass1'])):
+    #	templates.append(f_at_t(f['mass1'][i], f['mass2'][i], f['f_low'][i], f['f_high'][i], f['duration'][i], f['delta_t'][i]))
+    return templates
 
 
-if not os.path.exists(project_dir):
-    os.mkdir(project_dir)
 
 #loading a bank of pre-generated templates. TODO: handle multiple ways of selecting templates.
 #For BNS templates, PyCBC's geom_aligned_spin is a good choice as it produces transformation matrices for template selection,
 #but requires the TaylorF2 metric which isn't accurate for BBH. 
 
 if bank_type == "pycbc":
-    template_bank_params, metricParams, aXis = load_pycbc_templates(template_bank)
+    print("Note: this bank matching method only works with BNS templates.")
+    template_bank_params, metricParams, aXis = load_pycbc_templates(template_bank, template_dir=template_dir)
     np.save(project_dir+"/template_params.npy",template_bank_params)
     print("Number of templates: ", len(template_bank_params))	
 elif bank_type == "spiir":
     template_bank_params = np.load(template_bank)
     np.save(project_dir+"/template_params.npy", arr=template_bank_params)
     print("Number of templates: ", len(template_bank_params))	
+
+elif bank_type == "pycbc_smart_match":
+    #if template bank is an hdf file, load the templates from the hdf file
+    #and generate the metricParams and aXis from the metricParam_source file
+    #else load the templates from the txt file (same as the pycbc option)
+
+    if template_bank.endswith(".hdf"):
+        print("loading templates from hdf file")
+        _, metricParams, _ = load_pycbc_templates(metricParam_source, template_dir=template_dir)
+        template_bank_params = load_pycbc_templates_from_hdf(template_bank)
+        aXis = get_cov_params(template_bank_params[:,1],template_bank_params[:,2],template_bank_params[:,3],template_bank_params[:,4],metricParams,metricParams.fUpper)
+    else:
+        print("loading templates from txt file")
+        template_bank_params, metricParams, aXis = load_pycbc_templates(template_bank, template_dir=template_dir)
+    #TODO: eventually switch distance to redshift, then we can work with detector-frame masses and automatically trim templates
+    #nsbh = ((template_bank_params[:,1] > 3) & (template_bank_params[:,2] < 3.75) & (template_bank_params[:,1] < 100))
+    
+    #the 3.125 is chosen as max m2 as 2.5 * 1.25 is the maximum m2 detector frame mass in GWTC-3
+    #aXis = aXis[:,nsbh]
+    #template_bank_params = template_bank_params[nsbh]    
+    #for matching, waveform is generated in the time domain with SEOBNRv4_PHM, then converted to frequency domain
+    #templates are always generated in frequency domain with SEOBNRV4_ROM
+    if template_mass1_min is not None:
+        cut = ((template_bank_params[:,1] > template_mass1_min) & (template_bank_params[:,1] < template_mass1_max) &
+                (template_bank_params[:,2] > template_mass2_min) & (template_bank_params[:,2] < template_mass2_max))
+    else:
+        cut = np.ones(len(template_bank_params), dtype=bool)
+    aXis = aXis[:,cut]
+    template_bank_params = template_bank_params[cut]
+    print("Number of templates after cut: ", len(template_bank_params))
+    np.save(project_dir+"/template_params.npy", arr=template_bank_params)
+
 else:
     print(f"Invalid template bank type: {bank_type}")
     print("Program exiting...")
     exit()
 
 
-
+global psds
 
 
 #set a seed to ensure reproducibility
 np.random.seed(seed)
 
-prior = PriorDict()
+
+
+if chirp_mass_prior is not None:
+    prior = PriorDict(conversion_function=sample_masses_from_cm_q)
+else:
+    prior = PriorDict()
 
 # IF YOU ARE USING DIFFERENT PRIOR DISTRIBUTIONS FOR M1 AND M2, MAKE SURE YOU KNOW WHAT YOU ARE DOING.
 # CURRENTLY, M1 AND M2 ARE SWAPPED IF M2 IS SAMPLED ABOVE M1, WHICH ONLY WORKS WHEN THEY USE THE SAME
 # DISTRIBUTION. IF USING DIFFERENT DISTRIBUTIONS (EG. POWER LAW), BE CAREFUL AND TEST THIS CODE FIRST.
-if mass1prior != PowerLaw:
-    prior['mass1_source'] = constructPrior(mass1prior, mass1_min, mass1_max)
-    prior['mass2_source'] = constructPrior(mass2prior, mass2_min, mass2_max)
+
+if chirp_mass_prior is not None:
+    print("sampling m1 and m2 using chirp mass prior")
+    prior['chirp_mass'] = constructPrior(chirp_mass_prior, chirp_mass(mass1_min, mass2_min), chirp_mass(mass1_max, mass2_max), mode = chirp_mass(mass1_min, mass2_min))
+    prior['mass_ratio'] = constructPrior(mass_ratio_prior, mass2_min/mass1_max, min(mass2_max/mass1_min,1), alpha = mass_ratio_power)
+    prior['mass1_source'] = bilby.core.prior.Constraint(minimum=mass1_min, maximum=mass1_max, name='mass1_source')
+    prior['mass2_source'] = bilby.core.prior.Constraint(minimum=mass2_min, maximum=mass2_max, name='mass2_source')
+
+else:
+
+    if mass1prior != PowerLaw:
+        #Primarily used for BNS
+        prior['mass1_source'] = constructPrior(mass1prior, mass1_min, mass1_max)
+        prior['mass2_source'] = constructPrior(mass2prior, mass2_min, mass2_max)
+    elif mass1prior == PowerLaw and mass2prior != PowerLaw:
+        #Primarily used for NSBH
+        print("mass1 is a power law, mass2 is not")
+        prior['mass1_source'] = constructPrior(mass1prior, mass1_min, mass1_max, alpha = mass1_power)
+        prior['mass2_source'] = constructPrior(mass2prior, mass2_min, mass2_max)
 
 prior['spin1z'] = constructPrior(spin1zprior, spin1z_min, spin1z_max)
 prior['spin2z'] = constructPrior(spin2zprior, spin2z_min, spin2z_max)
@@ -535,10 +800,28 @@ else:
 prior['i'] = constructPrior(inc_prior, inc_min * np.pi, inc_max * np.pi)
 prior['pol'] = constructPrior(pol_prior, pol_min * np.pi *2, pol_max * np.pi *2)
 
+if eccentricity_prior is not None:
+    prior['eccentricity'] = constructPrior(eccentricity_prior, eccentricity_min, eccentricity_max, alpha = eccentricity_power)
+
 if d_eff_scaling:
     prior['d_eff'] = constructPrior(d_eff_prior, d_eff_min, d_eff_max, name = 'luminosity_distance')
 
-valid_times, _, _ = get_valid_noise_times(noise_dir,duration)
+if SNR_prior is not None:
+    prior['network_snr'] = constructPrior(SNR_prior, SNR_min, SNR_max, alpha = SNR_power)
+
+from GWSamplegen.noise_utils import get_valid_noise_times_new, get_data_from_OzStar
+if noise_segments is None:
+    valid_times, _, _ = get_valid_noise_times(noise_dir,duration)
+else:
+    print("Noise GPS times are now:",noise_segments)
+    valid_times = get_valid_noise_times_new(noise_segments,duration)
+
+# if isinstance(noise_dir, str):
+#     print("using noise from directory")
+#     valid_times, _, _ = get_valid_noise_times(noise_dir,duration)
+# else:
+#     print("Noise GPS times are now:",noise_dir)
+#     valid_times = get_valid_noise_times_new(noise_dir,duration)
 
 print(len(valid_times), "GPS times available")
 
@@ -557,23 +840,27 @@ iteration = 0
 wavetime = 0
 
 # get correct PyCBC waveform
-approx_name, approx_phase_order = legacy_approximant_name(td_approximant)
+if bank_type == "spiir":
+    approx_name, approx_phase_order = legacy_approximant_name(td_approximant)
 
 #get longest waveform in template bank. As the templates are sorted by chirp mass, this will be the first template.
-hp, _ = get_td_waveform(mass1=template_bank_params[0,1], mass2=template_bank_params[0,2], 
-						delta_t=delta_t, f_lower=f_lower, approximant=approx_name, phase_order=approx_phase_order)
+#hp, _ = get_td_waveform(mass1=template_bank_params[0,1], mass2=template_bank_params[0,2], 
+#						delta_t=delta_t, f_lower=f_lower, approximant=approx_name, phase_order=approx_phase_order)
 #TODO: maybe replace with the t_at_f function 
 #from GWSamplegen.waveform_utils import t_at_f
 
-max_waveform_length = len(hp) * delta_t + 1 #adding a safety factor of 1 second
-max_waveform_length = max(32, int(np.ceil(max_waveform_length/10)*10)) #rounding up to the nearest 10 seconds / setting to 12 for BBHs
+#max_waveform_length = len(hp) * delta_t + 1 #adding a safety factor of 1 second
+#max_waveform_length = max(32, int(np.ceil(max_waveform_length/10)*10)) #rounding up to the nearest 10 seconds / setting to 12 for BBHs
+#NOTE: for now, setting to max BNS waveform length.
+max_waveform_length = 100
 print("max waveform length: ", max_waveform_length)
 if duration < 2*max_waveform_length:
     print(f"Desired duration of {duration} seconds for generating samples is less than two times the max_waveform_length of {max_waveform_length} seconds of your injection parameter space. This will mean that samples positioned at the middle of your sample will encounter issues due to filter wrap around in matched filtering.")
     print("Please fix the duration input parameter.")
     exit()
 
-SNR_thresh = 6
+#TODO: add glitch SNR threshold as a config parameter
+SNR_thresh = 7
 
 if noise_type == "Real":
 
@@ -588,10 +875,12 @@ if noise_type == "Real":
         glitchy_freqs[ifo] = []
 
     for ifo in detectors:
-        
-        glitchy, glitchless, freq, glitch_snr = get_glitchy_times(noise_dir+"/{}_glitches.npy".format(ifo),
-                                        duration, valid_times, max_waveform_length, SNR_thresh, f_lower, seconds_before, seconds_after)
-        
+        if noise_segments is None:
+            glitchy, glitchless, freq, glitch_snr = get_glitchy_times(noise_dir+"/{}_glitches.npy".format(ifo),
+                                            duration, valid_times, max_waveform_length, SNR_thresh, f_lower, seconds_before, seconds_after)
+        else:
+            glitchy, glitchless, freq, glitch_snr = get_glitchy_times("/fred/oz016/alistair/Omicron_all/{}_glitches.npy".format(ifo),
+                                            duration, valid_times, max_waveform_length, SNR_thresh, f_lower, seconds_before, seconds_after)
         glitchless_times[ifo] = glitchless
         glitchy_times[ifo] = glitchy
         glitchy_freqs[ifo] = freq
@@ -611,10 +900,6 @@ if noise_type == "Real":
     if len(detectors) == 2:
         two_glitch_generator = two_det_timeslide([glitchy_times[ifo] for ifo in detectors], min_separation)
 
-
-
-
-
 if bank_type == "spiir":
     # organise tasks for getting template waveforms
     print(f"Shape of template_bank_params: {np.shape(template_bank_params)}")
@@ -632,25 +917,25 @@ if bank_type == "spiir":
     print("Successfully finished generation of template waveforms")
 
 
-
-
-
 previous_good_params_length = 0
 while generated_samples < n_signal_samples:
 
     #generate waveforms_per_file samples at a time, to avoid memory issues.
 
     p = prior.sample(waveforms_per_batch)
-
-    if mass1prior == PowerLaw:
-        m1 = []
-        m2 = []
-        for i in range(waveforms_per_batch):
-            pair = next(iter(draw_mass_pair_power(mass1_min, mass1_max, mass2_min, mass2_max, mass1_power, mass2_power)))
-            m1.append(pair[0])
-            m2.append(pair[1])
-        p['mass1_source'] = m1
-        p['mass2_source'] = m2
+    if chirp_mass_prior is not None:
+        p['mass1_source'], p['mass2_source'] = bilby.gw.conversion.chirp_mass_and_mass_ratio_to_component_masses(p['chirp_mass'], p['mass_ratio'])
+    else:
+        
+        if mass1prior == PowerLaw and mass2prior == PowerLaw:
+            m1 = []
+            m2 = []
+            for i in range(waveforms_per_batch):
+                pair = next(iter(draw_mass_pair_power(mass1_min, mass1_max, mass2_min, mass2_max, mass1_power, mass2_power)))
+                m1.append(pair[0])
+                m2.append(pair[1])
+            p['mass1_source'] = m1
+            p['mass2_source'] = m2
 
     cosmol = FlatwCDM(H0=67.9, Om0=0.3065, w0=-1)
     m1_df = []
@@ -664,6 +949,24 @@ while generated_samples < n_signal_samples:
     p['mass1'] = m1_df
     p['mass2'] = m2_df
 
+    if spin_type == "Aligned":
+        p['spin1x'] = np.zeros(waveforms_per_batch)
+        p['spin1y'] = np.zeros(waveforms_per_batch)
+        p['spin2x'] = np.zeros(waveforms_per_batch)
+        p['spin2y'] = np.zeros(waveforms_per_batch)
+    
+    elif spin_type == "Isotropic":
+        #TODO: rename spin1z and spin2z to spin1 and spin2
+        p['spin1x'], p['spin1y'], p['spin1z'] = zip(*[draw_spin_isotropic(spin1z_max) for _ in range(waveforms_per_batch)])
+        p['spin2x'], p['spin2y'], p['spin2z'] = zip(*[draw_spin_isotropic(spin2z_max) for _ in range(waveforms_per_batch)]) 
+        p['spin1x'] = np.array(p['spin1x'])
+        p['spin1y'] = np.array(p['spin1y'])
+        p['spin1z'] = np.array(p['spin1z'])
+        p['spin2x'] = np.array(p['spin2x'])
+        p['spin2y'] = np.array(p['spin2y'])
+        p['spin2z'] = np.array(p['spin2z'])
+    else:
+        raise ValueError("Invalid spin type. Please choose either 'Aligned' or 'Isotropic'.")
 
     #adding non-sampled args to the parameters
     p['gps'] = []
@@ -741,13 +1044,16 @@ while generated_samples < n_signal_samples:
         #TODO: add effective distance for each detector
         p['d_eff'] = np.zeros(waveforms_per_batch)
 
+    if eccentricity_prior is None:
+        p['eccentricity'] = np.zeros(waveforms_per_batch)
+
     
     #turn dict of lists into a list of dicts (for multiprocessing)
     params = [{key: p[key][i] for key in p.keys()} for i in range(len(p['mass1']))]
 
     #get the SNRs of the samples
     start = time.time()
-    with mp.Pool(processes = n_cpus) as pool:
+    with mp.Pool(processes=n_cpus) as pool:
 
         #snrs is a list of dicts, where each dict is {detector: snr}
         snrs = pool.map(get_snr, params)
@@ -763,6 +1069,23 @@ while generated_samples < n_signal_samples:
     for i in range(len(snrs)):
 
         network_snr = np.sqrt(sum([snrs[i][detector]**2 for detector in snrs[i]]))
+
+        if SNR_prior is not None:
+            #we simply rescale the network SNR to match the target SNR
+
+            network_SNR_scale = params[i]['network_snr'] / network_snr 
+            network_snr *= network_SNR_scale
+            #params[i]['network_snr'] = network_snr 
+            for detector in detectors:
+                snrs[i][detector] *= network_SNR_scale
+            #[snrs[i][detector] for detector in snrs[i]] = [snr * network_SNR_scale for snr in snrs[i].values()]
+            #scale the distance of the sample, as this is how we change the SNR
+            params[i]['d'] = params[i]['d'] / network_SNR_scale
+
+            #if np.min([snrs[i][detector] for detector in snrs[i]]) < detector_snr_threshold * network_SNR_scale:
+            #    #if after scaling the network SNR one or both of the detector SNRs are below the threshold,
+            #    #we instead scale by the minimum of the two detector SNRs
+            #    network_SNR_scale = np.min([snrs[i][detector] for detector in snrs[i]]) / params[i]['network_snr']
 
         if (network_snr > network_snr_threshold and all([snr > detector_snr_threshold for snr in snrs[i].values()])) or d_eff_scaling:
             #this sample is suitable, get it ready for saving
@@ -783,8 +1106,10 @@ while generated_samples < n_signal_samples:
                 #                                                   templates_per_waveform, template_selection_width)
                 params[i]['template_waveforms'] = choose_templates_new(template_bank_params, metricParams, 
                                                                        templates_per_waveform, params[i]['mass1'], params[i]['mass2'], 
-                                                                       params[i]['spin1z'], params[i]['spin2z'], aXis = aXis)
-                
+                                                                       params[i]['spin1z'], params[i]['spin2z'], limit = pycbc_match_limit, aXis = aXis)
+            #elif bank_type == "pycbc_smart_match":
+            #    print("bing")
+
             elif bank_type == "spiir":
                 params[i]['template_waveforms'] = []
                 cm = chirp_mass(params[i]['mass1'], params[i]['mass2'])
@@ -828,6 +1153,37 @@ while generated_samples < n_signal_samples:
             good_params[i+previous_good_params_length]['template_waveforms'] = templates[i]
             good_params[i+previous_good_params_length]['overlaps'] = chosen_overlaps[i]
 
+    elif bank_type == "pycbc_smart_match":
+        print("running smart match")
+        t_task = time.time()
+        print(len(good_params[previous_good_params_length: ]), "tasks to run")
+        t_args = {"aXis": aXis, "metricParams": metricParams, "template_bank_params":template_bank_params,
+                   "td_approximant": td_approximant, "fd_approximant": fd_approximant,
+                  "f_lower": f_lower, "psds": psds , "duration": duration}
+        with mp.Pool() as pool:
+            olaps = pool.starmap(find_templates, [(good_params[previous_good_params_length: ][n], t_args, smart_match_limit, 0.95, templates_per_waveform, 20) for n in range(len(good_params[previous_good_params_length: ]))], chunksize = 1)
+            pool.close()
+            pool.join()
+        print(f"Time for template selection multiprocessing of all tasks: {time.time() - t_task} seconds")
+        olaps = np.array(olaps)
+        for i in range(len(olaps)):
+            print(olaps[i])
+            good_params[i+previous_good_params_length]['overlaps'] = olaps[i, 0]
+            good_params[i+previous_good_params_length]['template_waveforms'] = olaps[i, 1]
+            
+    elif bank_type == "pycbc":
+        #we still need to get the proper overlaps for the chosen templates
+        print("getting overlaps for chosen templates")
+        t_task = time.time()
+        with mp.Pool() as pool:
+            overlaps = pool.map(get_overlaps, [good_params[i+previous_good_params_length] for i in range(len(good_params[previous_good_params_length:]))])
+            pool.close()
+            pool.join()
+        print(f"Time for overlap calculation multiprocessing of all tasks: {time.time() - t_task} seconds")
+        for i in range(len(overlaps)):
+            good_params[i+previous_good_params_length]['overlaps'] = overlaps[i]
+
+
     generated_samples = len(good_params)
     if generated_samples <= waveforms_per_batch:
         if generated_samples/waveforms_per_batch < 0.5:
@@ -868,7 +1224,7 @@ if not d_eff_scaling and np.max([i['network_snr'] for i in good_params]) < 500:
 if n_signal_samples > 0:
     good_params_dict = {key: np.array([good_params[i][key] for i in range(len(good_params))][:n_signal_samples]) for key in good_params[0].keys()}
 
-np.save(project_dir+"/"+"params.npy", good_params_dict)
+np.save(project_dir+"/"+"params_{}.npy".format(job_id), good_params_dict)
 
 
 #generate noise samples. most of the parameters aren't used, but the masses are used to choose the templates.
@@ -876,15 +1232,18 @@ np.save(project_dir+"/"+"params.npy", good_params_dict)
 if n_noise_samples > 0:
     noise_p = prior.sample(n_noise_samples)
 
-    if mass1prior == PowerLaw:
-        m1 = []
-        m2 = []
-        for i in range(n_noise_samples):
-            pair = next(iter(draw_mass_pair_power(mass1_min, mass1_max, mass2_min, mass2_max, mass1_power, mass2_power)))
-            m1.append(pair[0])
-            m2.append(pair[1])
-        noise_p['mass1_source'] = m1
-        noise_p['mass2_source'] = m2
+    if chirp_mass_prior is not None:
+        noise_p['mass1_source'], noise_p['mass2_source'] = bilby.gw.conversion.chirp_mass_and_mass_ratio_to_component_masses(noise_p['chirp_mass'], noise_p['mass_ratio'])
+    else:
+        if mass1prior == PowerLaw and mass2prior == PowerLaw:
+            m1 = []
+            m2 = []
+            for i in range(n_noise_samples):
+                pair = next(iter(draw_mass_pair_power(mass1_min, mass1_max, mass2_min, mass2_max, mass1_power, mass2_power)))
+                m1.append(pair[0])
+                m2.append(pair[1])
+            noise_p['mass1_source'] = m1
+            noise_p['mass2_source'] = m2
 
     cosmol = FlatwCDM(H0=67.9, Om0=0.3065, w0=-1)
     m1_df = []
@@ -898,12 +1257,32 @@ if n_noise_samples > 0:
     noise_p['mass1'] = m1_df
     noise_p['mass2'] = m2_df
 
+    if spin_type == "Aligned":
+        noise_p['spin1x'] = np.zeros(waveforms_per_batch)
+        noise_p['spin1y'] = np.zeros(waveforms_per_batch)
+        noise_p['spin2x'] = np.zeros(waveforms_per_batch)
+        noise_p['spin2y'] = np.zeros(waveforms_per_batch)
+    
+    elif spin_type == "Isotropic":
+        #TODO: rename spin1z and spin2z to spin1 and spin2
+        noise_p['spin1x'], noise_p['spin1y'], noise_p['spin1z'] = zip(*[draw_spin_isotropic(spin1z_max) for _ in range(n_noise_samples)])
+        noise_p['spin2x'], noise_p['spin2y'], noise_p['spin2z'] = zip(*[draw_spin_isotropic(spin2z_max) for _ in range(n_noise_samples)]) 
+        noise_p['spin1x'] = np.array(noise_p['spin1x'])
+        noise_p['spin1y'] = np.array(noise_p['spin1y'])
+        noise_p['spin1z'] = np.array(noise_p['spin1z'])
+        noise_p['spin2x'] = np.array(noise_p['spin2x'])
+        noise_p['spin2y'] = np.array(noise_p['spin2y'])
+        noise_p['spin2z'] = np.array(noise_p['spin2z'])
+    else:
+        raise ValueError("Invalid spin type. Please choose either 'Aligned' or 'Isotropic'.")
+
     noise_p['gps'] = []
     noise_p['overlaps'] = np.zeros(shape=(n_signal_samples, templates_per_waveform))  # This is dummy data so it saves correctly
     noise_p['injection'] = np.zeros(n_noise_samples, dtype = bool)
     noise_p['template_waveforms'] = np.random.randint(0, len(template_bank_params), size=(n_noise_samples,templates_per_waveform))
     templates = []
     noise_p['d_eff'] = np.zeros(n_noise_samples)
+    noise_p['eccentricity'] = np.zeros(n_noise_samples)
 
     #TODO: get the actual max SNR for the noise segment maybe?
     noise_p['network_snr'] = np.zeros(n_noise_samples)
@@ -979,74 +1358,7 @@ if n_noise_samples > 0:
         good_params_dict = noise_p
 
 #np.save(project_dir+"/"+"noise_params.npy", noise_p)
-np.save(project_dir+"/"+"params.npy", good_params_dict)
-
-#save the arguments used to generate the parameters to a file
-
-args = {
-    "seed": seed,
-    "n_signal_samples": n_signal_samples,
-    "n_noise_samples": n_noise_samples,
-    "glitch_frac": glitch_frac,
-    "project_dir": project_dir,
-    "noise_dir": noise_dir,
-    "noise_type": noise_type,
-    "template_bank": template_bank,
-    "templates_per_waveform": templates_per_waveform,
-    "template_range": template_range,
-    "template_selection": template_selection,
-    "template_selection_skewed": template_selection_skewed,
-    "bank_type": bank_type,
-    "td_approximant": td_approximant,
-    "fd_approximant": fd_approximant,
-    "f_lower": f_lower,
-    "delta_t": delta_t,
-    "duration": duration,
-    "seconds_before": seconds_before,
-    "seconds_after": seconds_after,
-    "detectors": detectors,
-    "network_snr_threshold": network_snr_threshold,
-    "detector_snr_threshold": detector_snr_threshold,
-    # "powerlaw_alpha": powerlaw_alpha,
-    "mass1prior": mass1prior.__name__,
-    "mass2prior": mass2prior.__name__,
-    "mass1_power": mass1_power,
-    "mass2_power": mass2_power,
-    "mass1_min": mass1_min,
-    "mass1_max": mass1_max,
-    "mass2_min": mass2_min,
-    "mass2_max": mass2_max,
-    "spin1zprior": spin1zprior.__name__,
-    "spin2zprior": spin2zprior.__name__,
-    "spin1z_min": spin1z_min,
-    "spin1z_max": spin1z_max,
-    "spin2z_min": spin2z_min,
-    "spin2z_max": spin2z_max,
-    "ra_prior": ra_prior.__name__,
-    "dec_prior": dec_prior.__name__,
-    "ra_min": ra_min,
-    "ra_max": ra_max,
-    "dec_min": dec_min,
-    "dec_max": dec_max,
-    "d_prior": d_prior.__name__,
-    "d_min": d_min,
-    "d_max": d_max,
-    "d_eff_scaling": d_eff_scaling,
-    "d_eff_target": d_eff_target,
-    "d_eff_prior": d_eff_prior.__name__,
-    "d_eff_min": d_eff_min,
-    "d_eff_max": d_eff_max,
-    "inc_prior": inc_prior.__name__,
-    "inc_min": inc_min,
-    "inc_max": inc_max,
-    "pol_prior": pol_prior.__name__,
-    "pol_min": pol_min,
-    "pol_max": pol_max
-}
-
-#save args
-with open(project_dir+"/"+"args.json", 'w') as f:
-    json.dump(args, f, sort_keys=False, indent=4)
+np.save(project_dir+"/"+"params_{}.npy".format(job_id), good_params_dict)
 
 print("finished generating waveforms. time taken: " + str(wavetime/60) + " minutes")
 
@@ -1060,3 +1372,23 @@ if n_signal_samples > 0:
     plt.yscale('log')
     #plt.xlim(0,30)
     plt.savefig(project_dir+"/injected_SNR.png")
+
+    sigs = np.where(good_params_dict['overlaps'][:,0] ==0)[0][0]
+
+    fiftyp = np.sort(good_params_dict['overlaps'][:sigs,0])[len(good_params_dict['overlaps'][:sigs])//2]
+    ninetyp = np.sort(good_params_dict['overlaps'][:sigs,0])[len(good_params_dict['overlaps'][:sigs])//10]
+    ninetyninep = np.sort(good_params_dict['overlaps'][:sigs,0])[len(good_params_dict['overlaps'][:sigs])//100]
+
+
+    f = plt.figure(figsize=(4,3), dpi=200)
+    plt.hist(good_params_dict['overlaps'][:sigs,0], bins=100, alpha=0.5)
+    plt.axvline(fiftyp, color='b', linestyle='dashed', linewidth=1, label = '50%')
+    plt.axvline(ninetyp, color='r', linestyle='dashed', linewidth=1, label = '90%')
+    plt.axvline(ninetyninep, color='g', linestyle='dashed', linewidth=1, label = '99%')
+    plt.legend(loc='upper left')
+    plt.xlabel('Max. overlap')
+    plt.ylabel('Count')
+    plt.yscale('log')
+    #make sure axis labels are visible
+    plt.tight_layout()
+    plt.savefig(project_dir+"/overlaps.png")
