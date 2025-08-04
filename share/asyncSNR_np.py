@@ -22,96 +22,6 @@ import time
 #from astropy.utils import iers
 #iers.conf.auto_download = False
 
-# def get_projected_waveform_mp(args, waveform_duration=None):
-# 	ifos = ['H1', 'L1']
-# 	all_detectors = {'H1': Detector('H1'), 'L1': Detector('L1'), 'V1': Detector('V1'), 'K1': Detector('K1')}
-# 	temp_approximant = select_approximant(args['mass1'], args['mass2'], td_approximant, domain = 'time')
-# 	# temp_approximant = td_approximant
-# 	# #change approximant, based on GWTC3
-# 	# if args['mass1'] + args['mass2'] > 9 and temp_approximant == "SEOBNRv4P":
-# 	# 	temp_approximant = "SEOBNRv4PHM"
-# 	# 	#print("using SEOBNRv4PHM")
-# 	# elif args['mass1'] + args['mass2'] < 9 and temp_approximant == "SEOBNRv4PHM":
-# 	# 	temp_approximant = "SEOBNRv4P"
-
-# 	if temp_approximant == "SEOBNRv4P":
-# 		#f_lower_temp = args['f_lower']*0.75
-# 		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
-# 		delta_t_temp = delta_t/8
-# 	elif temp_approximant == "SEOBNRv4PHM":
-# 		#f_lower_temp = 4
-# 		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
-# 		delta_t_temp = delta_t/2
-# 	elif temp_approximant in ["EccentricTD", "EccentricFD", "TaylorF2Ecc"]:
-# 		#TODO: Add some method for specifying the reference frequency of the eccentric waveform...
-# 		f_lower_temp = min(20, maximum_f_lower(args['mass1'], args['mass2']))
-# 	else:
-# 		#f_lower_temp = args['f_lower']
-# 		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
-# 		delta_t_temp = delta_t
-# 	#print("f_lower:", f_lower_temp, "delta_t:", delta_t_temp)
-
-# 	if temp_approximant in td_approximants():
-# 		if waveform_duration is not None:
-# 			hp, hc = get_td_waveform(mass1 = args['mass1'], mass2 = args['mass2'], 
-# 								spin1x = args['spin1x'], spin2x = args['spin2x'],
-# 								spin1y = args['spin1y'], spin2y = args['spin2y'],
-# 								spin1z = args['spin1z'], spin2z = args['spin2z'],
-# 								inclination = args['i'], distance = args['d'],
-# 								approximant = temp_approximant, f_lower = args["f_low"],
-# 								delta_t = args["delta_t"], phase_order=args["phase_order"])
-# 			hp.prepend_zeros(int(waveform_duration/args["delta_t"]) - len(hp.data))
-# 			hc.prepend_zeros(int(waveform_duration/args["delta_t"]) - len(hc.data))
-# 			hp = TimeSeries(hp, delta_t=args["delta_t"])
-# 			hc = TimeSeries(hc, delta_t=args["delta_t"])
-# 		else:
-# 			try:
-# 				hp, hc = get_td_waveform(mass1 = args['mass1'], mass2 = args['mass2'], 
-# 									spin1x = args['spin1x'], spin2x = args['spin2x'],
-# 									spin1y = args['spin1y'], spin2y = args['spin2y'],
-# 									spin1z = args['spin1z'], spin2z = args['spin2z'],
-# 									inclination = args['i'], distance = args['d'],
-# 									approximant = temp_approximant, f_lower = f_lower_temp, delta_t = delta_t_temp)
-# 			except:
-# 				hp, hc = get_td_waveform(mass1 = args['mass1'], mass2 = args['mass2'], 
-# 									spin1x = args['spin1x'], spin2x = args['spin2x'],
-# 									spin1y = args['spin1y'], spin2y = args['spin2y'],
-# 									spin1z = args['spin1z'], spin2z = args['spin2z'],
-# 									inclination = args['i'], distance = args['d'],
-# 									approximant = temp_approximant, f_lower = f_lower_temp, delta_t = delta_t_temp/8)
-# 				print("ignore previous error, waveform generated successfully.")
-# 			hp = hp.resample(delta_t)
-# 			hc = hc.resample(delta_t)
-	
-# 	elif temp_approximant not in td_approximants() and temp_approximant in fd_approximants():
-# 		hp_f, hc_f = get_fd_waveform(mass1 = args['mass1'], mass2 = args['mass2'],
-# 						spin1x = args['spin1x'], spin2x = args['spin2x'],
-# 						spin1y = args['spin1y'], spin2y = args['spin2y'],
-# 						spin1z = args['spin1z'], spin2z = args['spin2z'],
-# 						inclination = args['i'], distance = args['d'], eccentricity = args['eccentricity'],
-# 						approximant = temp_approximant, f_lower = f_lower_temp,
-# 						delta_f = delta_f, f_final = f_final)
-# 		#convert to time domain
-# 		hp = hp_f.to_timeseries(delta_t=delta_t)
-# 		hc = hc_f.to_timeseries(delta_t=delta_t)
-	
-# 	waveforms = np.empty(shape=(len(ifos), len(hp)))
-
-# 	for detector in ifos:
-# 		f_plus, f_cross = all_detectors[detector].antenna_pattern(
-# 			right_ascension=args['ra'], declination=args['dec'],
-# 			polarization=args['pol'],
-# 			t_gps=args['gps'][0])
-		
-# 		detector_signal = f_plus * hp + f_cross * hc
-# 		#detector_signal = detector_signal.resample(delta_t)
-# 		detector_index = ifos.index(detector)
-# 		waveforms[detector_index] = detector_signal
-
-# 	if waveform_duration is not None:
-# 		return waveforms
-# 	else:
-# 		return waveforms, hp.sample_times.data[-1]
 from GWSamplegen.waveform_utils import get_projected_waveform_mp
 
 def run_batch(n):
@@ -176,7 +86,7 @@ def run_batch(n):
 			
 			temp, merger_offset = get_projected_waveform_mp(args)
 			#merger_offset = int(merger_offset*sample_rate)
-			print("merger offset", merger_offset)
+			#print("merger offset", merger_offset)
 						
 			for ifo in ifos:
 				#relevant quantities: 
@@ -189,7 +99,7 @@ def run_batch(n):
 					excess_waveform = 0
 				else:
 					print("trimming excess waveform, ", excess_waveform, "samples")
-				print("start, end: ", duration*sample_rate//2 - w_len + offset + merger_offset, duration*sample_rate//2 + offset + merger_offset)
+				#print("start, end: ", duration*sample_rate//2 - w_len + offset + merger_offset, duration*sample_rate//2 + offset + merger_offset)
 				strains[ifo][i,duration*sample_rate//2 - w_len + offset + merger_offset: duration*sample_rate//2 + offset + merger_offset] = temp[ifos.index(ifo)][excess_waveform:]
 				delta_t_h1 = all_detectors[ifo].time_delay_from_detector(other_detector=all_detectors[ifos[0]],
 													right_ascension=params['ra'][n+i],
