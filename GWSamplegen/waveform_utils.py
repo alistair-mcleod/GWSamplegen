@@ -380,3 +380,85 @@ def select_approximant(mass1,mass2, approximant_dict, domain="time"):
         if int(key) > mtotal and current_key > int(key):
             current_key = int(key)
     return approximant_dict[str(current_key)]
+
+from pycbc.detector import Detector
+from pycbc.types.timeseries import TimeSeries
+from pycbc.waveform import get_fd_waveform, get_td_waveform, td_approximants, fd_approximants
+
+#TODO: generalise to different detectors
+def get_projected_waveform_mp(args):
+	"""Generate and project a waveform for a given set of parameters. Designed for easy multiprocessing.
+		
+	Parameters
+	----------
+	args : dict
+		Dictionary containing the waveform generation parameters. MUST contain the following keys:
+			mass1, mass2, inclination, distance,
+			ra (right ascension), dec (declination), pol (polarization), gps (GPS time),
+			f_lower (lower frequency cutoff), f_final, delta_t, td_approximant
+
+		The dictionary can also contain other parameters such as spin and eccentricity, but these are optional.
+		Note the keys must conform to the naming convention of the `get_td_waveform` and `get_fd_waveform` functions from PyCBC.
+		
+	Returns
+	-------
+	waveforms : np.ndarray
+		Array of projected waveforms for each detector in the network.
+	t_end: float
+		the end time of the waveform relative to the end of the array, in samples.
+	"""
+	
+	ifos = ['H1', 'L1']
+	all_detectors = {'H1': Detector('H1'), 'L1': Detector('L1'), 'V1': Detector('V1'), 'K1': Detector('K1')}
+	temp_approximant = select_approximant(args['mass1'], args['mass2'], args['td_approximant'], domain = 'time')
+
+	if temp_approximant == "SEOBNRv4P":
+		#f_lower_temp = args['f_lower']*0.75
+		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
+		delta_t_temp = args["delta_t"]/8
+	elif temp_approximant == "SEOBNRv4PHM":
+		#f_lower_temp = 4
+		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
+		delta_t_temp = args["delta_t"]/2
+	elif temp_approximant in ["EccentricTD", "EccentricFD", "TaylorF2Ecc"]:
+		#TODO: Add some method for specifying the reference frequency of the eccentric waveform...
+		f_lower_temp = min(20, maximum_f_lower(args['mass1'], args['mass2']))
+	else:
+		#f_lower_temp = args['f_lower']
+		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
+		delta_t_temp = args["delta_t"]
+	#print("f_lower:", f_lower_temp, "delta_t:", delta_t_temp)
+	
+	#f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
+	#delta_t_temp = args["delta_t"]
+	if temp_approximant in td_approximants():
+		try:
+			hp, hc = get_td_waveform(args, approximant = temp_approximant, f_lower = f_lower_temp, delta_t = delta_t_temp)
+		except:
+			hp, hc = get_td_waveform(args, approximant = temp_approximant, f_lower = f_lower_temp, delta_t = delta_t_temp/8)
+			print("ignore previous error, waveform generated successfully.")
+		hp = hp.resample(args["delta_t"])
+		hc = hc.resample(args["delta_t"])
+	
+	elif temp_approximant not in td_approximants() and temp_approximant in fd_approximants():
+		hp_f, hc_f = get_fd_waveform(args,
+						approximant = temp_approximant, f_lower = f_lower_temp,
+						delta_f = args["delta_f"], f_final = args["f_final"])
+		#convert to time domain
+		hp = hp_f.to_timeseries(delta_t=args["delta_t"])
+		hc = hc_f.to_timeseries(delta_t=args["delta_t"])
+
+	waveforms = np.empty(shape=(len(ifos), len(hp)))
+
+	for detector in ifos:
+		f_plus, f_cross = all_detectors[detector].antenna_pattern(
+			right_ascension=args['ra'], declination=args['dec'],
+			polarization=args['pol'],
+			t_gps=args['gps'])
+		
+		detector_signal = f_plus * hp + f_cross * hc
+		#detector_signal = detector_signal.resample(delta_t)
+		detector_index = ifos.index(detector)
+		waveforms[detector_index] = detector_signal
+
+	return waveforms, int(hp.sample_times.data[-1]* hp.sample_rate)

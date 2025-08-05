@@ -809,19 +809,12 @@ if d_eff_scaling:
 if SNR_prior is not None:
     prior['network_snr'] = constructPrior(SNR_prior, SNR_min, SNR_max, alpha = SNR_power)
 
-from GWSamplegen.noise_utils import get_valid_noise_times_new, get_data_from_OzStar
+from GWSamplegen.noise_utils import get_valid_noise_times_from_segments #, get_data_from_OzStar
 if noise_segments is None:
     valid_times, _, _ = get_valid_noise_times(noise_dir,duration)
 else:
     print("Noise GPS times are now:",noise_segments)
-    valid_times = get_valid_noise_times_new(noise_segments,duration)
-
-# if isinstance(noise_dir, str):
-#     print("using noise from directory")
-#     valid_times, _, _ = get_valid_noise_times(noise_dir,duration)
-# else:
-#     print("Noise GPS times are now:",noise_dir)
-#     valid_times = get_valid_noise_times_new(noise_dir,duration)
+    valid_times = get_valid_noise_times_from_segments(noise_segments,duration)
 
 print(len(valid_times), "GPS times available")
 
