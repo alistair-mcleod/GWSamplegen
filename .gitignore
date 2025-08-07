@@ -1,7 +1,4 @@
-#template banks can potentially contain terabytes of data, so we don't want to store them in the git repository
 template_banks/*
-
-!template_banks/GSTLal_templates.npy
 
 #noise can also contain large amounts of data
 noise/*
@@ -17,6 +14,7 @@ args/*
 *.txt
 
 **.ipynb
+.vscode/
 
 **__pycache__**
 #logs
@@ -26,6 +24,9 @@ load*
 /*.json
 /*.sh
 
+!install.sh
+
+#do publish template banks that were used in papers
 !template_banks/PyCBC_98_aligned_spin.txt
 !template_banks/PyCBC_98_aligned_spin_intermediate.hdf
 !GWSamplegen/segments/*

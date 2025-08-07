@@ -1,6 +1,6 @@
 [project]
 name = "GWSamplegen"
-version = "0.1.5"
+version = "0.2.0"
 authors = [
 	{name = "Alistair McLeod", email = "alistair.mcleod@research.uwa.edu.au"},
 	{name = "Damon Beveridge", email = "damon.beveridge@research.uwa.edu.au"},
