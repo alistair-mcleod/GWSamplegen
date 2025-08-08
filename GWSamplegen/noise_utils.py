@@ -277,7 +277,7 @@ def generate_time_slides(
 				used_combinations.add(combination)
 				yield tuple(detector_data[i][sample_indices[i]] for i in range(num_detectors))
 
-	
+
 def two_det_timeslide(
 		detector_data: List[List[int]], 
 		min_distance: int,
@@ -306,25 +306,27 @@ def two_det_timeslide(
 	used_combinations = set()
 
 	data_lengths = [len(data) for data in detector_data]
-	divisor = data_lengths[1] 
+	n_detectors = len(detector_data)
 	min_length = min(data_lengths)
 	max_combos = (min_length - (min_distance - 1)) * (min_length - min_distance)
 	while True:
 		idx = np.random.randint(0,np.prod(data_lengths))
-		sample_indicies = (idx//divisor, idx%divisor)
+		sample_indicies = np.unravel_index(idx, data_lengths)
 
 		# Limits the number of possible samples we draw from the generator
 		if len(used_combinations) == max_combos:
 			print("No more unique combinations available.")
 			return
 
-		separation = abs(detector_data[0][sample_indicies[0]] - detector_data[1][sample_indicies[1]])
-		if separation >= min_distance and separation <= max_distance:
+		#get absolute difference between ALL N pairs of noise times
+		a, b = np.triu_indices(n_detectors,1)
+		separations = np.abs(np.array(sample_indicies)[a] - np.array(sample_indicies)[b])
+		if np.all(separations) >= min_distance and np.all(separations) <= max_distance:
 			if sample_indicies not in used_combinations:
 
 				used_combinations.add(sample_indicies)
-				#yield sample_indicies
-				yield (detector_data[0][sample_indicies[0]], detector_data[1][sample_indicies[1]])
+				#yield detector gps times as a tuple
+				yield tuple(detector_data[i][sample_indicies[i]] for i in range(n_detectors))
 
 
 #utilities for downloading noise for later use
@@ -740,6 +742,3 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False):
 		print("GPS time:", gps_start)
 		print("Ifo:", ifo)
 	return dat
-
-def get_valid_blah():
-	return "blah"
