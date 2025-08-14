@@ -321,7 +321,7 @@ def two_det_timeslide(
 		#get absolute difference between ALL N pairs of noise times
 		a, b = np.triu_indices(n_detectors,1)
 		separations = np.abs(np.array(sample_indicies)[a] - np.array(sample_indicies)[b])
-		if np.all(separations) >= min_distance and np.all(separations) <= max_distance:
+		if np.all(separations >= min_distance)  and np.all(separations <= max_distance):
 			if sample_indicies not in used_combinations:
 
 				used_combinations.add(sample_indicies)
