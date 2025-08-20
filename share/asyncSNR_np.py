@@ -82,8 +82,8 @@ def run_batch(n):
 					'inclination': params['i'][n+i], 'distance': params['d'][n+i],
 					'ra': params['ra'][n+i], 'dec': params['dec'][n+i],
 					'pol': params['pol'][n+i], 'gps': params['gps'][n+i][0], "f_lower": f_lower, 
-					"f_final": f_final, "delta_t": delta_t, "td_approximant": td_approximant}
-			
+					"f_final": f_final, "delta_t": delta_t, "delta_f": delta_f, "td_approximant": td_approximant}
+
 			temp, merger_offset = get_projected_waveform_mp(args)
 			#merger_offset = int(merger_offset*sample_rate)
 			#print("merger offset", merger_offset)

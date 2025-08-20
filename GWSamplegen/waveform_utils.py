@@ -395,7 +395,7 @@ def get_projected_waveform_mp(args):
 		Dictionary containing the waveform generation parameters. MUST contain the following keys:
 			mass1, mass2, inclination, distance,
 			ra (right ascension), dec (declination), pol (polarization), gps (GPS time),
-			f_lower (lower frequency cutoff), f_final, delta_t, td_approximant
+			f_lower (lower frequency cutoff), f_final, delta_t, delta_f, td_approximant
 
 		The dictionary can also contain other parameters such as spin and eccentricity, but these are optional.
 		Note the keys must conform to the naming convention of the `get_td_waveform` and `get_fd_waveform` functions from PyCBC.
@@ -423,6 +423,7 @@ def get_projected_waveform_mp(args):
 	elif temp_approximant in ["EccentricTD", "EccentricFD", "TaylorF2Ecc"]:
 		#TODO: Add some method for specifying the reference frequency of the eccentric waveform...
 		f_lower_temp = min(20, maximum_f_lower(args['mass1'], args['mass2']))
+		delta_t_temp = args["delta_t"]
 	else:
 		#f_lower_temp = args['f_lower']
 		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
