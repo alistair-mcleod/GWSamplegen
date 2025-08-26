@@ -41,9 +41,8 @@ def run_batch(n):
 	for i in range(n_templates * samples_per_batch):
 		temp_fd_approximant = select_approximant(batch_template_params[i,1], batch_template_params[i,2], fd_approximant, domain='frequency')
 		t_templates[i] = get_fd_waveform(mass1 = batch_template_params[i,1], mass2 = batch_template_params[i,2], 
-				   		spin1z = batch_template_params[i,3], spin2z = batch_template_params[i,4],
+						spin1z = batch_template_params[i,3], spin2z = batch_template_params[i,4],
 						approximant = temp_fd_approximant, f_lower = f_lower, delta_f = delta_f, f_final = f_final)[0].data[kmin:kmax]
-		  				#spin1z = 0, spin2z = 0,
 
 	#create this batch's strains
 	#TODO: optimise memory usage. we're creating the waveform and strain arrays separately, which is inefficient.
@@ -60,7 +59,7 @@ def run_batch(n):
 			noise = np.zeros((len(ifos), duration*sample_rate))
 			for j in range(len(ifos)):
 				noise[j] = pycbc.noise.gaussian.noise_from_psd(duration*int(1/delta_t),delta_t,psds[ifos[j]],
-						   seed=seed+n+i*len(ifos)+j)
+							seed=seed+n+i*len(ifos)+j)
 		else:
 			if noise_segments is None:
 				noise = fetch_noise_loaded(segments,duration,gps[n+i],sample_rate,paths)
@@ -229,6 +228,10 @@ if __name__ == "__main__":
 				print("n_chisq_bins is", n_chisq_bins)
 			else:
 				reduced_chisq = False
+			if "save_complex" in config.keys():
+				save_complex = config['save_complex']
+			else:
+				save_complex = False
 			if "save_strain" in config:
 				save_strain = config['save_strain']
 			else:
@@ -253,9 +256,9 @@ if __name__ == "__main__":
 
 	offset = 0
 
-	fname = 'SNR.npy'
+	#fname = 'SNR.npy'
 	#TODO: make it so we can choose between saving complex vs abs SNR
-	fname = 'SNR_abs.npy'
+	#fname = 'SNR_abs.npy'
 
 	#template_dir = "./template_banks/BNS_lowspin_freqseries"
 
@@ -326,8 +329,10 @@ if __name__ == "__main__":
 		print("computing PSDs from noise segments")
 		for ifo in ifos:
 			psds[ifo] = []
-
-	fp = create_memmap_file(project_dir + "/" + fname, shape=(len(ifos),n_templates*len(params['mass1']), (seconds_before + seconds_after)*sample_rate))
+	if save_complex:
+		fp = create_memmap_file(project_dir + "/SNR.npy", shape=(len(ifos),n_templates*len(params['mass1']), (seconds_before + seconds_after)*sample_rate), dtype=np.complex64)
+	else:
+		fp = create_memmap_file(project_dir + "/SNR_abs.npy", shape=(len(ifos),n_templates*len(params['mass1']), (seconds_before + seconds_after)*sample_rate))
 
 	if save_strain:
 		fp_s = create_memmap_file(project_dir + "/strain.npy", shape=(len(ifos),n_templates*len(params['mass1']), duration*sample_rate), data_type='strain')
@@ -382,7 +387,10 @@ if __name__ == "__main__":
 			#t_templates, strains = results[i]
 			for ifo in ifos:
 				#TODO: again, fix abs vs complex
-				fp[ifos.index(ifo)][(i)*n_templates*samples_per_batch + n_templates*n:(i+1)*n_templates*samples_per_batch + n_templates*n] = np.abs(results[i][ifo])
+				if save_complex:
+					fp[ifos.index(ifo)][(i)*n_templates*samples_per_batch + n_templates*n:(i+1)*n_templates*samples_per_batch + n_templates*n] = results[i][ifo].astype(np.complex64)
+				else:
+					fp[ifos.index(ifo)][(i)*n_templates*samples_per_batch + n_templates*n:(i+1)*n_templates*samples_per_batch + n_templates*n] = np.abs(results[i][ifo])
 
 		#garbage collect
 		del results
@@ -405,8 +413,13 @@ if __name__ == "__main__":
 	#memmap'd files don't have a header describing the shape of the array, so we add one here
 
 	header = np.lib.format.header_data_from_array_1_0(fp)
-	with open(project_dir + "/" + fname, 'r+b') as f:
-		np.lib.format.write_array_header_1_0(f, header)
+
+	if save_complex:
+		with open(project_dir + "/SNR.npy", 'r+b') as f:
+			np.lib.format.write_array_header_1_0(f, header)
+	else:
+		with open(project_dir + "/SNR_abs.npy", 'r+b') as f:
+			np.lib.format.write_array_header_1_0(f, header)
 
 	if save_strain:
 		fp_s.flush()

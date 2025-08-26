@@ -57,7 +57,7 @@ final_cleanup_name="SNR_cleanup_"$jobname
 #this final job is necessary to ensure the SNR_abs.npy is not over-allocated space.
 #numpy's memmap function will allocate ~3x more disk space than the actual file size.
 #copying the file ensures it is allocated the correct amount of space.
-final=$(sbatch --job-name=${final_cleanup_name} --ntasks=2 --output=${GWSAMPLEGEN_DIR}/logs/%x.log --time=1:00:00 --mem=100G --dependency=afterok:$SNR_job --parsable --wrap  "cd ${save_dir}; cp SNR_abs.npy SNR2.npy; rm SNR_abs.npy; mv SNR2.npy SNR_abs.npy")
+final=$(sbatch --job-name=${final_cleanup_name} --ntasks=2 --output=${GWSAMPLEGEN_DIR}/logs/%x.log --time=2:00:00 --mem=10G --dependency=afterok:$SNR_job --parsable --wrap  "cd '${save_dir}'; ls; echo '${save_dir}'; for f in *.npy; do echo fixing file \${f}; cp \${f} \${f}.temp && rm \${f} && mv \${f}.temp \${f}; done")
 
 #this echo ensures the final job's ID is printed to the terminal for dependency chaining
 echo "Final job: "
