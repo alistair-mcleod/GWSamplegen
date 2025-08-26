@@ -659,8 +659,8 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False):
 	"""OzStar-specific function for fetching GW data."""
 	if gps_start != int(gps_start):
 		print("NOTE: you have specified a non-integer GPS time to fetch. Make sure this is what you want!")
-	if gps_start > 1249850209 and gps_start + duration < 1249850209 + 4096:
-		#edge case since one of the ifos was not in observing mode during GW190814
+	if gps_start >= 1249850209 and gps_start + duration <= 1249850209 + 4096:
+		#edge case since Hanford was locked but not in observing mode for GW190814
 		print("we're looking for GW190814 data")
 		fp = "/fred/oz016/alistair/GWSamplegen/noise/GW190814/GW190814_{}_4096.hdf5".format(ifo)
 		f = h5py.File(fp, 'r')
@@ -672,7 +672,20 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False):
 		data = TimeSeries(data, delta_t = 1/4096, epoch = gps_start)
 		data = data.resample(1/2048)
 		return data
-	
+	elif gps_start >= 1180920447 and gps_start + duration <= 1180920447 + 4096:
+		#edge case since Hanford was not in observing mode for GW170608
+		print("We're looking for GW170608 data")
+		fp = "/fred/oz016/alistair/GWSamplegen/noise/GW170608/GW170608_{}_4096.hdf5".format(ifo)
+		f = h5py.File(fp, 'r')
+		print("loaded")
+		data = f['strain']['Strain'][()]
+		start_idx = int((gps_start-1180920447)*4096)
+
+		data = data[start_idx:start_idx+duration*4096]
+		data = TimeSeries(data, delta_t = 1/4096, epoch = gps_start)
+		data = data.resample(1/2048)
+		return data
+
 	root = "/datasets/LIGO/public/gwosc.osgstorage.org/gwdata"
 	#by looking in reverse order we avoid prematurely selecting the wrong chunk
 	ObsRuns = ["O3b", "O3a", "O2", "O1"]
@@ -681,17 +694,20 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False):
 			print("Checking run", run)
 		chunks = np.sort(np.array(os.listdir(os.path.join(root, run, "strain.4k", "hdf.v1", ifo)), dtype = int))
 		chunkstart = np.where((chunks <= int(gps_start)))[0]
-		chunkend = np.where((chunks >= int(gps_start+duration)))[0]
-
+		#chunkend = np.where((chunks >= int(gps_start+duration)))[0]
+		chunkend = np.where((chunks < int(gps_start+duration)) & (chunks > int(gps_start)))[0]
+		if verbose:
+			print("chunks:", chunks)
 		if len(chunkstart) == 0:
 			continue
 		else:
 			chunkstart = chunkstart[-1]
 			if len(chunkend) == 0:
 				chunkend = chunkstart
-				print("In last chunk of run")
 			else:
-				chunkend = chunkend[0] -1
+				chunkend = chunkend[0] 
+				if verbose:
+					print("crosses two chunks")
 			if verbose:
 				print("Found chunk", chunkstart, chunkend)
 			break
@@ -706,6 +722,8 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False):
 	segments_split_start = np.array([seg.split("-") for seg in segments_start])
 	segments_split_end = np.array([seg.split("-") for seg in segments_end])
 
+	if verbose:
+		print("segments start", segments_split_start[:,2])
 	seg_idx = np.where(segments_split_start[:,2].astype('int') <= gps_start)[0][-1]
 	seg_idx_end = np.where(segments_split_end[:,2].astype('int') + 4096 >= gps_start+duration)[0][0]
 
@@ -717,17 +735,22 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False):
 	if simple:
 		dat = GWPYTimeSeries.read(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkstart]),segments_start[seg_idx]), 
 					format="hdf5.gwosc", start = gps_start, end = gps_start+duration)
+		#if there are NaNs, replace them with zeros and print a warning
+		if np.any(np.isnan(dat)):
+			print("WARNING: Found NaNs in the data!")
+			print("GPS time:", gps_start)
+			print("Ifo:", ifo)
+
 		dat = dat.to_pycbc()
 		dat = dat.resample(1/2048)
+
 	else:
 		dat_start = GWPYTimeSeries.read(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkstart]),segments_start[seg_idx]),
 				format="hdf5.gwosc", start = gps_start)
 		dat_end = GWPYTimeSeries.read(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkend]),segments_end[seg_idx_end]),
-				format="hdf5.gwosc", end = gps_start+duration)
-
+				format="hdf5.gwosc", end = gps_start+duration)	
 		dat_start = dat_start.to_pycbc()
-		dat_end = dat_end.to_pycbc()	
-
+		dat_end = dat_end.to_pycbc()
 		#resample
 		dat_start = dat_start.resample(1/2048)
 		dat_end = dat_end.resample(1/2048)
@@ -736,9 +759,11 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False):
 		#concatenate
 		dat_start[-len(dat_end):] = dat_end
 		dat = dat_start
-	#check if there are nans in the data
 	if np.any(np.isnan(dat.data)):
 		print("WARNING: Found NaNs in the data!")
 		print("GPS time:", gps_start)
-		print("Ifo:", ifo)
+		print("Ifo:", ifo)	
+		print("Returning None for now.")
+		return None
+
 	return dat
