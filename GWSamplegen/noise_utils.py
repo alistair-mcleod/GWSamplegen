@@ -655,7 +655,7 @@ def psd_preceding(noise, sample_rate, f_lower, delta_f, seconds_before = 10):
 	ret = inverse_spectrum_truncation(ret, int(4 * sample_rate), low_frequency_cutoff=f_lower)
 	return ret
 
-def get_data_from_OzStar(gps_start, duration, ifo, verbose = False):
+def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/datasets/LIGO/public/"):
 	"""OzStar-specific function for fetching GW data."""
 	if gps_start != int(gps_start):
 		print("NOTE: you have specified a non-integer GPS time to fetch. Make sure this is what you want!")
@@ -686,7 +686,7 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False):
 		data = data.resample(1/2048)
 		return data
 
-	root = "/datasets/LIGO/public/gwosc.osgstorage.org/gwdata"
+	root = os.path.join(root, "gwosc.osgstorage.org", "gwdata")
 	#by looking in reverse order we avoid prematurely selecting the wrong chunk
 	ObsRuns = ["O3b", "O3a", "O2", "O1"]
 	for run in ObsRuns:
