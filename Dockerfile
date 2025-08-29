@@ -8,7 +8,9 @@ FROM igwn/base:el8
 RUN dnf -y install https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm && dnf -y install cvmfs cvmfs-config-default && dnf clean all && dnf makecache && \
     dnf -y groupinstall "Development Tools" \
                         "Scientific Support" && \
-    rpm -e --nodeps git perl-Git && dnf -y install @python39 && python3.9 -m pip install --upgrade pip setuptools wheel && python3.9 -m pip install mkl ipython jupyter jupyterhub jupyterlab && dnf clean all
+    rpm -e --nodeps git perl-Git 
+
+RUN dnf -y install python3.12 && dnf -y install python3.12-pip && python3.12 -m pip install --upgrade pip setuptools wheel && python3.12 -m pip install mkl ipython jupyter jupyterhub jupyterlab && dnf clean all
 
     #RUN dnf -y install @python39 && dnf install git &&  dnf clean all
 
@@ -22,11 +24,11 @@ RUN dnf -y install https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-
 # Now update all of our library installations
 
 # Make python be what we want
-RUN alternatives --set python /usr/bin/python3.9
+RUN alternatives --set python /usr/bin/python3.12
 
-ENV VIRTUAL_ENV=/opt/venv
-RUN python3 -m venv $VIRTUAL_ENV
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+#ENV VIRTUAL_ENV=/opt/venv
+#RUN python3 -m venv $VIRTUAL_ENV
+#ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Explicitly set the path so that it is not inherited from build the environment
 #ENV PATH "/usr/local/bin:/usr/bin:/bin:/lib64/openmpi/bin/bin"
@@ -45,10 +47,11 @@ ENV LAL_DATA_PATH="/cvmfs/software.igwn.org/pycbc/lalsuite-extra/current/share/l
 
 # Replace the github repo accordingly
 #RUN pip install git+https://github.com/alistair-mcleod/GWSamplegen.git
-RUN git clone https://github.com/alistair-mcleod/GWSamplegen.git
+RUN git clone https://github.com/alistair-mcleod/GWSamplegen.git && pip install git+https://github.com/alistair-mcleod/GWSamplegen.git
 #RUN ls
 #RUN cd GWSamplegen
-RUN echo y | bash GWSamplegen/install.sh
+#RUN pip install git+https://github.com/alistair-mcleod/GWSamplegen.git
+#RUN echo y | bash GWSamplegen/install.sh
 
 #ADD ./docker/etc/docker-install.sh /etc/docker-install.sh
 
