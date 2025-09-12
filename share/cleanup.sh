@@ -10,10 +10,14 @@
 
 project_dir=$1
 n_jobs=$2
+cleanup_type=$3
+if [ -z "$cleanup_type" ]; then
+	cleanup_type="params"
+fi
 
 echo "Cleaning up temporary files"
 
-python ${GWSAMPLEGEN_DIR}/share/cleanup.py --projectdir=$project_dir --njobs=$n_jobs
+python ${GWSAMPLEGEN_DIR}/share/cleanup.py --projectdir=$project_dir --njobs=$n_jobs --filetype=$cleanup_type
 #get the exit code of the last command
 exit_code=$?
 if [ $exit_code -ne 0 ]; then

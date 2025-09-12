@@ -121,7 +121,7 @@ def run_batch(n):
 
 		strain = [TimeSeries(strains[ifo][i], delta_t=delta_t) for i in range(samples_per_batch)]
 		if save_strain:
-			fp_s[ifos.index(ifo)][n_templates*n:n_templates*samples_per_batch + n_templates*n] = strains[ifo].astype(np.float32)
+			fp_s[ifos.index(ifo)][n - index * samples_per_file:samples_per_batch + n- index*samples_per_file] = strains[ifo].astype(np.float32)
 			#(i)*n_templates*samples_per_batch + n_templates*n:(i+1)*n_templates*samples_per_batch + n_templates*n
 			#fp_s[ifo][(i)*n_templates + n_templates*n:(i+1)*n_templates + n_templates*n] = strains[ifo][i]
 
@@ -130,12 +130,12 @@ def run_batch(n):
 				#compute spectrograms
 				spec, re, im = process_single_series_complex(strains[ifo][i].astype(np.float32))
 				q, vitmap, lineaware = process_single_series_qtransform(strains[ifo][i].astype(np.float32))
-				fp_spec[ifos.index(ifo)][n_templates*n + i] = spec.astype(np.float32)
-				fp_re[ifos.index(ifo)][n_templates*n + i] = re.astype(np.float32)
-				fp_im[ifos.index(ifo)][n_templates*n + i] = im.astype(np.float32)
-				fp_q[ifos.index(ifo)][n_templates*n + i] = q.astype(np.float32)
-				fp_vitmap[ifos.index(ifo)][n_templates*n + i] = vitmap.astype(np.float32)
-				fp_lineaware[ifos.index(ifo)][n_templates*n + i] = lineaware.astype(np.float32)
+				fp_spec[ifos.index(ifo)][n + i - index*samples_per_file] = spec.astype(np.float32)
+				fp_re[ifos.index(ifo)][n + i - index*samples_per_file] = re.astype(np.float32)
+				fp_im[ifos.index(ifo)][n + i - index*samples_per_file] = im.astype(np.float32)
+				fp_q[ifos.index(ifo)][n + i - index*samples_per_file] = q.astype(np.float32)
+				fp_vitmap[ifos.index(ifo)][n + i - index*samples_per_file] = vitmap.astype(np.float32)
+				fp_lineaware[ifos.index(ifo)][n + i - index*samples_per_file] = lineaware.astype(np.float32)
 
 		strain = [highpass(i,f_lower).to_frequencyseries(delta_f=delta_f).data for i in strain]
 
@@ -330,20 +330,47 @@ if __name__ == "__main__":
 		for ifo in ifos:
 			psds[ifo] = []
 	if save_complex:
-		fp = create_memmap_file(project_dir + "/SNR.npy", shape=(len(ifos),n_templates*len(params['mass1']), (seconds_before + seconds_after)*sample_rate), dtype=np.complex64)
+		fp = np.zeros((len(ifos),n_templates*len(params['mass1'])//total_jobs, (seconds_before + seconds_after)*sample_rate), dtype=np.complex64)
+		#fp = create_memmap_file(project_dir + "/SNR_{}.npy".format(index), 
+		#				shape=(len(ifos),n_templates*len(params['mass1'])//total_jobs, (seconds_before + seconds_after)*sample_rate), 
+		#				dtype=np.complex64)
+
 	else:
-		fp = create_memmap_file(project_dir + "/SNR_abs.npy", shape=(len(ifos),n_templates*len(params['mass1']), (seconds_before + seconds_after)*sample_rate))
+		fp = np.zeros((len(ifos),n_templates*len(params['mass1'])//total_jobs, (seconds_before + seconds_after)*sample_rate), dtype=np.float32)
+		# fp = create_memmap_file(project_dir + "/SNR_abs_{}.npy".format(index), 
+		# 				shape=(len(ifos),n_templates*len(params['mass1'])//total_jobs, (seconds_before + seconds_after)*sample_rate))
 
 	if save_strain:
-		fp_s = create_memmap_file(project_dir + "/strain.npy", shape=(len(ifos),n_templates*len(params['mass1']), duration*sample_rate), data_type='strain')
+		fp_s = create_memmap_file(project_dir + "/strain_{}.npy".format(index), 
+						shape=(len(ifos),len(params['mass1'])//total_jobs, duration*sample_rate), 
+						data_type='strain')
 
 	if save_spectrograms:
-		fp_spec = create_memmap_file(project_dir + "/spectrogram.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram')
-		fp_re = create_memmap_file(project_dir + "/spectrogram_re.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram_re')
-		fp_im = create_memmap_file(project_dir + "/spectrogram_im.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram_im')
-		fp_q = create_memmap_file(project_dir + "/spectrogram_q.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram_q')
-		fp_vitmap = create_memmap_file(project_dir + "/spectrogram_vitmap.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram_vitmap')
-		fp_lineaware = create_memmap_file(project_dir + "/spectrogram_lineaware.npy", shape=(len(ifos), n_templates*len(params['mass1']), 224, 224), dtype=np.float32, data_type='spectrogram_lineaware')
+		# fp_spec = np.zeros((len(ifos), len(params['mass1'])//total_jobs, 224, 224), dtype=np.float32)
+		# fp_re = np.zeros((len(ifos), len(params['mass1'])//total_jobs, 224, 224), dtype=np.float32)
+		# fp_im = np.zeros((len(ifos), len(params['mass1'])//total_jobs, 224, 224), dtype=np.float32)
+		# fp_q = np.zeros((len(ifos), len(params['mass1'])//total_jobs, 224, 224), dtype=np.float32)
+		# fp_vitmap = np.zeros((len(ifos), len(params['mass1'])//total_jobs, 224, 224), dtype=np.float32)
+		# fp_lineaware = np.zeros((len(ifos), len(params['mass1'])//total_jobs, 224, 224), dtype=np.float32)
+
+		fp_spec = create_memmap_file(project_dir + "/spectrogram_{}.npy".format(index), 
+						shape=(len(ifos), len(params['mass1'])//total_jobs, 224, 224), 
+						dtype=np.float32, data_type='spectrogram')
+		fp_re = create_memmap_file(project_dir + "/spectrogram_re_{}.npy".format(index), 
+						shape=(len(ifos), len(params['mass1'])//total_jobs, 224, 224), 
+						dtype=np.float32, data_type='spectrogram_re')
+		fp_im = create_memmap_file(project_dir + "/spectrogram_im_{}.npy".format(index), 
+						shape=(len(ifos), len(params['mass1'])//total_jobs, 224, 224), 
+						dtype=np.float32, data_type='spectrogram_im')
+		fp_q = create_memmap_file(project_dir + "/spectrogram_q_{}.npy".format(index), 
+						shape=(len(ifos), len(params['mass1'])//total_jobs, 224, 224), 
+						dtype=np.float32, data_type='spectrogram_q')
+		fp_vitmap = create_memmap_file(project_dir + "/spectrogram_vitmap_{}.npy".format(index), 
+						shape=(len(ifos), len(params['mass1'])//total_jobs, 224, 224), 
+						dtype=np.float32, data_type='spectrogram_vitmap')
+		fp_lineaware = create_memmap_file(project_dir + "/spectrogram_lineaware_{}.npy".format(index), 
+						shape=(len(ifos), len(params['mass1'])//total_jobs, 224, 224), 
+						dtype=np.float32, data_type='spectrogram_lineaware')
 
 	#detectors = {'H1': Detector('H1'), 'L1': Detector('L1'), 'V1': Detector('V1'), 'K1': Detector('K1')}
 	print("file will have shape ", fp.shape)
@@ -369,6 +396,7 @@ if __name__ == "__main__":
 	for n in range(index*samples_per_file,(index+1)*samples_per_file,samples_per_batch*mp_batch):
 		#print("batch:", n//samples_per_batch)
 		#print(n)
+		#n is the index of the first batch to be processed
 		end = min(n+mp_batch*samples_per_batch, (index+1)*samples_per_file)
 
 		print("starting batches",[j for j in range(n,end,samples_per_batch)])
@@ -385,13 +413,14 @@ if __name__ == "__main__":
 		#for i in range(mp_batch):
 		for i in range(len(results)):
 			#t_templates, strains = results[i]
+			s_idx = n_templates * (i*samples_per_batch + n - index*samples_per_file)
+			e_idx = n_templates * ((i+1)*samples_per_batch + n - index*samples_per_file)
 			for ifo in ifos:
-				#TODO: again, fix abs vs complex
 				if save_complex:
-					fp[ifos.index(ifo)][(i)*n_templates*samples_per_batch + n_templates*n:(i+1)*n_templates*samples_per_batch + n_templates*n] = results[i][ifo].astype(np.complex64)
+					fp[ifos.index(ifo)][s_idx:e_idx] = results[i][ifo].astype(np.complex64)
 				else:
-					fp[ifos.index(ifo)][(i)*n_templates*samples_per_batch + n_templates*n:(i+1)*n_templates*samples_per_batch + n_templates*n] = np.abs(results[i][ifo])
-
+					fp[ifos.index(ifo)][s_idx:e_idx] = np.abs(results[i][ifo])
+		#fp.flush()
 		#garbage collect
 		del results
 		gc.collect()
@@ -408,56 +437,72 @@ if __name__ == "__main__":
 	print("it would take ", (25000 * t_time/(samples_per_file*total_jobs))/3600, "hours to process 25000 samples.")
 
 
-	fp.flush()
+	#fp.flush()
 
 	#memmap'd files don't have a header describing the shape of the array, so we add one here
 
-	header = np.lib.format.header_data_from_array_1_0(fp)
+	#header = np.lib.format.header_data_from_array_1_0(fp)
 
-	if save_complex:
-		with open(project_dir + "/SNR.npy", 'r+b') as f:
-			np.lib.format.write_array_header_1_0(f, header)
-	else:
-		with open(project_dir + "/SNR_abs.npy", 'r+b') as f:
-			np.lib.format.write_array_header_1_0(f, header)
+	# if save_complex:
+	# 	with open(project_dir + "/SNR_{}.npy".format(index), 'r+b') as f:
+	# 		np.lib.format.write_array_header_1_0(f, header)
+	# else:
+	# 	with open(project_dir + "/SNR_abs_{}.npy".format(index), 'r+b') as f:
+	# 		np.lib.format.write_array_header_1_0(f, header)
 
-	if save_strain:
-		fp_s.flush()
-		header = np.lib.format.header_data_from_array_1_0(fp_s)
-		with open(project_dir + "/strain.npy", 'r+b') as f:
-			np.lib.format.write_array_header_1_0(f, header)
+	# if save_strain:
+	# 	fp_s.flush()
+	# 	header = np.lib.format.header_data_from_array_1_0(fp_s)
+	# 	with open(project_dir + "/strain_{}.npy".format(index), 'r+b') as f:
+	# 		np.lib.format.write_array_header_1_0(f, header)
 
 	if save_spectrograms:
 		fp_spec.flush()
 		header = np.lib.format.header_data_from_array_1_0(fp_spec)
-		with open(project_dir + "/spectrogram.npy", 'r+b') as f:
+		with open(project_dir + "/spectrogram_{}.npy".format(index), 'r+b') as f:
 			np.lib.format.write_array_header_1_0(f, header)
 
 		fp_re.flush()
 		header = np.lib.format.header_data_from_array_1_0(fp_re)
-		with open(project_dir + "/spectrogram_re.npy", 'r+b') as f:
+		with open(project_dir + "/spectrogram_re_{}.npy".format(index), 'r+b') as f:
 			np.lib.format.write_array_header_1_0(f, header)
 
 		fp_im.flush()
 		header = np.lib.format.header_data_from_array_1_0(fp_im)
-		with open(project_dir + "/spectrogram_im.npy", 'r+b') as f:
+		with open(project_dir + "/spectrogram_im_{}.npy".format(index), 'r+b') as f:
 			np.lib.format.write_array_header_1_0(f, header)
 
 		fp_q.flush()
 		header = np.lib.format.header_data_from_array_1_0(fp_q)
-		with open(project_dir + "/spectrogram_q.npy", 'r+b') as f:
+		with open(project_dir + "/spectrogram_q_{}.npy".format(index), 'r+b') as f:
 			np.lib.format.write_array_header_1_0(f, header)
 
 		fp_vitmap.flush()
 		header = np.lib.format.header_data_from_array_1_0(fp_vitmap)
-		with open(project_dir + "/spectrogram_vitmap.npy", 'r+b') as f:
+		with open(project_dir + "/spectrogram_vitmap_{}.npy".format(index), 'r+b') as f:
 			np.lib.format.write_array_header_1_0(f, header)
 
 		fp_lineaware.flush()
 		header = np.lib.format.header_data_from_array_1_0(fp_lineaware)
-		with open(project_dir + "/spectrogram_lineaware.npy", 'r+b') as f:
+		with open(project_dir + "/spectrogram_lineaware_{}.npy".format(index), 'r+b') as f:
 			np.lib.format.write_array_header_1_0(f, header)
 
+	#save to disk
+	if save_complex:
+		np.save(project_dir + "/SNR_{}.npy".format(index), fp)
+	else:
+		np.save(project_dir + "/SNR_abs_{}.npy".format(index), fp)
+
+	if save_strain:
+		np.save(project_dir + "/strain_{}.npy".format(index), fp_s)
+		
+	# if save_spectrograms:
+	# 	np.save(project_dir + "/spectrogram_{}.npy".format(index), fp_spec)
+	# 	np.save(project_dir + "/spectrogram_re_{}.npy".format(index), fp_re)
+	# 	np.save(project_dir + "/spectrogram_im_{}.npy".format(index), fp_im)
+	# 	np.save(project_dir + "/spectrogram_q_{}.npy".format(index), fp_q)
+	# 	np.save(project_dir + "/spectrogram_vitmap_{}.npy".format(index), fp_vitmap)
+	# 	np.save(project_dir + "/spectrogram_lineaware_{}.npy".format(index), fp_lineaware)
 	#pool.close()
 
 	print("done!")

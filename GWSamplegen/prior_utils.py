@@ -28,6 +28,7 @@ def constructPrior(
 		try:
 			return prior(minimum = min, maximum = max, **kwargs)
 		except:
+			print("Failed to initialise prior with args, defaulting to no args.")
 			return prior(minimum = min, maximum = max)
 		
 def inv_tri_bilby(mode,minimum,maximum,val):
@@ -42,9 +43,9 @@ def inv_tri_bilby(mode,minimum,maximum,val):
 	) * (val >= fractional_mode)
 
 def tri_uniform(a,b, mode, r):
-	#r = probability of drawing from triangular distribution
-	#if r = 0, we draw from a uniform distribution
-	#if r = 1, we draw from a triangular distribution
+	#r = probability of drawing from uniform distribution
+	#if r = 1, we draw from a uniform distribution
+	#if r = 0, we draw from a triangular distribution
 	p = np.random.uniform(0, 1)
 	if p < r:
 		return np.random.uniform(a,b)
@@ -67,9 +68,12 @@ class TriUniform(bilby.core.prior.Prior):
         the mode has twice the probability density of the uniform distribution.
 	
 	"""
-	def __init__(self, minimum, maximum, mode, r = 2/3, name=None, latex_label=None, unit=None, boundary=None):
+	def __init__(self, minimum, maximum, mode, r = 2/3, name=None, latex_label=None, unit=None, boundary=None, **kwargs):
 		self.mode = mode
 		self.r = r
+		if "alpha" in kwargs:
+			#allow for 'alpha' as an alias for the r parameter
+			self.r = kwargs['alpha']
 		super(TriUniform, self).__init__(name=name, latex_label=latex_label, minimum=minimum, maximum=maximum, unit=unit, boundary=boundary)
 
 	def rescale(self, val):

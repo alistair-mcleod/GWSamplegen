@@ -768,7 +768,15 @@ else:
 
 if chirp_mass_prior is not None:
     print("sampling m1 and m2 using chirp mass prior")
-    prior['chirp_mass'] = constructPrior(chirp_mass_prior, chirp_mass(mass1_min, mass2_min), chirp_mass(mass1_max, mass2_max), mode = chirp_mass(mass1_min, mass2_min))
+    if chirp_mass_prior == TriUniform:
+        prior['chirp_mass'] = constructPrior(chirp_mass_prior, chirp_mass(mass1_min, mass2_min), 
+                                            chirp_mass(mass1_max, mass2_max), 
+                                            mode = chirp_mass(mass1_min, mass2_min),
+                                            r = chirp_mass_power)
+    else:
+        prior['chirp_mass'] = constructPrior(chirp_mass_prior, chirp_mass(mass1_min, mass2_min), 
+                                            chirp_mass(mass1_max, mass2_max), 
+                                            alpha = chirp_mass_power)
     prior['mass_ratio'] = constructPrior(mass_ratio_prior, mass2_min/mass1_max, min(mass2_max/mass1_min,1), alpha = mass_ratio_power)
     prior['mass1_source'] = bilby.core.prior.Constraint(minimum=mass1_min, maximum=mass1_max, name='mass1_source')
     prior['mass2_source'] = bilby.core.prior.Constraint(minimum=mass2_min, maximum=mass2_max, name='mass2_source')
@@ -1049,7 +1057,7 @@ while generated_samples < n_signal_samples:
     with mp.Pool(processes=n_cpus) as pool:
 
         #snrs is a list of dicts, where each dict is {detector: snr}
-        snrs = pool.map(get_snr, params)
+        snrs = pool.map(get_snr, params, chunksize = 1)
         pool.close()
         pool.join()
         #mp_waveforms is a list of lists, where each list is [waveform, snrs]
@@ -1153,7 +1161,7 @@ while generated_samples < n_signal_samples:
         t_args = {"aXis": aXis, "metricParams": metricParams, "template_bank_params":template_bank_params,
                    "td_approximant": td_approximant, "fd_approximant": fd_approximant,
                   "f_lower": f_lower, "psds": psds , "duration": duration}
-        with mp.Pool() as pool:
+        with mp.Pool(processes=n_cpus) as pool:
             olaps = pool.starmap(find_templates, [(good_params[previous_good_params_length: ][n], t_args, smart_match_limit, 0.95, templates_per_waveform, 20) for n in range(len(good_params[previous_good_params_length: ]))], chunksize = 1)
             pool.close()
             pool.join()
@@ -1168,8 +1176,8 @@ while generated_samples < n_signal_samples:
         #we still need to get the proper overlaps for the chosen templates
         print("getting overlaps for chosen templates")
         t_task = time.time()
-        with mp.Pool() as pool:
-            overlaps = pool.map(get_overlaps, [good_params[i+previous_good_params_length] for i in range(len(good_params[previous_good_params_length:]))])
+        with mp.Pool(processes=n_cpus) as pool:
+            overlaps = pool.map(get_overlaps, [good_params[i+previous_good_params_length] for i in range(len(good_params[previous_good_params_length:]))], chunksize = 1)
             pool.close()
             pool.join()
         print(f"Time for overlap calculation multiprocessing of all tasks: {time.time() - t_task} seconds")
