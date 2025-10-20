@@ -153,7 +153,8 @@ def run_batch(n):
 			x *= reduced_chisquared_precomputed_SNR(x, t_templates, strain_np, psds[ifo], kmin, kmax, delta_f, num_bins = n_chisq_bins)
 
 		ret[ifo] = x[:,len(x[0])//2-seconds_before*sample_rate+offset:len(x[0])//2+seconds_after*sample_rate+offset]
-
+		del strain_np, x
+		gc.collect()
 	return ret
 
 def create_memmap_file(file_path, shape, dtype=np.float32, data_type='SNR'):
@@ -283,7 +284,7 @@ if __name__ == "__main__":
 
 	offset = np.min((offset*sample_rate, duration//2))
 
-	samples_per_batch = min(100//(config['templates_per_waveform']),50)
+	samples_per_batch = min(100//(config['templates_per_waveform']),40)
 	print("SAMPLES_PER_BATCH:",samples_per_batch)
 
 	###################################################load noise segments
@@ -403,7 +404,7 @@ if __name__ == "__main__":
 
 		start = time.time()
 		with mp.Pool(n_cpus) as p:
-			results = p.map(run_batch, [j for j in range(n,end,samples_per_batch)])
+			results = p.map(run_batch, [j for j in range(n,end,samples_per_batch)], chunksize=1)
 			#results = p.map(run_batch, [j for j in range(n,min(n+mp_batch*samples_per_batch, samples_per_file),samples_per_batch)])
 		template_time += time.time() - start
 

@@ -348,10 +348,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--configfile', type=str, default=None)
 parser.add_argument('--jobid', type=int, default=None)
 parser.add_argument('--njobs', type=int, default=None)
+parser.add_argument('--cpus', type=int, default=28)
 args = parser.parse_args()
 config_file = args.configfile
 job_id = args.jobid
 n_jobs = args.njobs
+n_cpus = args.cpus #necessary because os.cpu_count() does not give the number of ALLOCATED cpus.
 
 
 #start of user-defined params and param ranges. 
@@ -360,7 +362,7 @@ n_jobs = args.njobs
 seed = 88102
 
 #number of CPUS to use
-n_cpus = 20
+#n_cpus = 20
 
 project_dir = "./configs/gaussian_test"
 noise_dir = './noise/test'
@@ -512,9 +514,10 @@ if config_file:
         project_dir = config['project_dir']
         template_bank = config['template_bank']
         bank_type = config['bank_type']
-        template_range = config['template_range']
-        template_selection = config['template_selection']
-        template_selection_skewed = config['template_selection_skewed']
+        if bank_type == "spiir":
+            template_range = config['template_range']
+            template_selection = config['template_selection']
+            template_selection_skewed = config['template_selection_skewed']
         noise_dir = config['noise_dir']
         noise_type = config['noise_type']
         templates_per_waveform = config['templates_per_waveform']
@@ -568,10 +571,13 @@ if config_file:
         d_prior = eval(config['d_prior'])
         d_min = config['d_min']
         d_max = config['d_max']
-        d_eff_scaling = config['d_eff_scaling']
-        d_eff_target = config['d_eff_target']
-        d_eff_min = config['d_eff_min']
-        d_eff_max = config['d_eff_max']
+        if "d_eff_scaling" in config:
+            d_eff_scaling = config['d_eff_scaling']
+            d_eff_target = config['d_eff_target']
+            d_eff_min = config['d_eff_min']
+            d_eff_max = config['d_eff_max']
+        else:
+            d_eff_scaling = False
         inc_prior = eval(config['inc_prior'])
         inc_min = config['inc_min']
         inc_max = config['inc_max']
@@ -629,6 +635,17 @@ if config_file:
             template_mass2_max = config['template_mass2_max']
             print("using template mass constraints", template_mass1_min, template_mass1_max, 
                   template_mass2_min, template_mass2_max)
+        elif "template_chirp_mass_min" in config:
+            template_chirp_mass_min = config['template_chirp_mass_min']
+            template_chirp_mass_max = config['template_chirp_mass_max']
+            print("using template chirp mass constraints", template_chirp_mass_min, template_chirp_mass_max)
+            template_mass1_min = None
+
+        if "constrain_to_templates" in config:
+            constrain_to_templates = config['constrain_to_templates']
+            print("constraining masses to be within template bank range")
+        else:
+            constrain_to_templates = False
 
         if not os.path.exists(project_dir):
             os.makedirs(project_dir, exist_ok=True)
@@ -638,9 +655,10 @@ if config_file:
     for key, value in config.items():
         print(key, value)
 
-if template_selection not in ["overlap", "snr", "random", "best"]:
-    print("Invalid `template_selection` method. Please choose either 'overlap' or 'snr'.")
-    exit()
+if bank_type == "spiir":
+    if template_selection not in ["overlap", "snr", "random", "best"]:
+        print("Invalid `template_selection` method. Please choose either 'overlap' or 'snr'.")
+        exit()
 
 n_signal_samples_total = n_signal_samples
 n_noise_samples_total = n_noise_samples
@@ -736,6 +754,8 @@ elif bank_type == "pycbc_smart_match":
     if template_mass1_min is not None:
         cut = ((template_bank_params[:,1] > template_mass1_min) & (template_bank_params[:,1] < template_mass1_max) &
                 (template_bank_params[:,2] > template_mass2_min) & (template_bank_params[:,2] < template_mass2_max))
+    elif template_chirp_mass_min is not None:
+        cut = ((template_bank_params[:,0] > template_chirp_mass_min) & (template_bank_params[:,0] < template_chirp_mass_max))
     else:
         cut = np.ones(len(template_bank_params), dtype=bool)
     aXis = aXis[:,cut]
@@ -766,9 +786,33 @@ else:
 # CURRENTLY, M1 AND M2 ARE SWAPPED IF M2 IS SAMPLED ABOVE M1, WHICH ONLY WORKS WHEN THEY USE THE SAME
 # DISTRIBUTION. IF USING DIFFERENT DISTRIBUTIONS (EG. POWER LAW), BE CAREFUL AND TEST THIS CODE FIRST.
 
+from pycbc.conversions import mass1_from_mchirp_q, mass2_from_mchirp_mass1
 if chirp_mass_prior is not None:
     print("sampling m1 and m2 using chirp mass prior")
-    if chirp_mass_prior == TriUniform:
+    if constrain_to_templates:
+
+        #find max m1 by setting m2 = 1
+        max_m1 = mass2_from_mchirp_mass1(chirp_mass_max, 1)
+        #find max m2 by setting m2 = m1
+        max_m2 = chirp_mass_max * 2**(1/5)
+        #min m1 is at the minimum chirp mass and q = 1
+        min_m1 = mass1_from_mchirp_q(chirp_mass_min, 1)
+        #min_m1 = mass2_from_mchirp_mass1(chirp_mass_min, max_m2)
+        #now clip to the hard limits
+        mass1_min = np.clip(min_m1, mass1_min, mass1_max)
+        mass2_min = np.clip(1, mass2_min, mass2_max)
+        mass1_max = np.clip(max_m1, mass1_min, mass1_max)
+        mass2_max = np.clip(max_m2, mass2_min, mass2_max)
+        print(f"chirp and component mass ranges for this bin: chirp mass {chirp_mass_min:.2f} - {chirp_mass_max:.2f}, m1: {mass1_min:.2f} - {mass1_max:.2f}, m2: {1:.2f} - {mass2_max:.2f}")
+
+        #TODO: generalise this stuff
+        #pdict = PriorDict(conversion_function = sample_masses_from_cm_q)
+        prior['chirp_mass'] = constructPrior(TriUniform, chirp_mass_min, chirp_mass_max, mode = chirp_mass_min, r = chirp_mass_power)
+        prior['mass_ratio'] = constructPrior(PowerLaw, 0.01, 1, alpha = 0)
+        prior['mass1_source'] = bilby.core.prior.Constraint(mass1_min, mass1_max, name= 'm1')
+        prior['mass2_source'] = bilby.core.prior.Constraint(mass2_min, mass2_max, name= 'm2')
+
+    elif chirp_mass_prior == TriUniform and not constrain_to_templates:
         prior['chirp_mass'] = constructPrior(chirp_mass_prior, chirp_mass(mass1_min, mass2_min), 
                                             chirp_mass(mass1_max, mass2_max), 
                                             mode = chirp_mass(mass1_min, mass2_min),
@@ -817,7 +861,7 @@ if d_eff_scaling:
 if SNR_prior is not None:
     prior['network_snr'] = constructPrior(SNR_prior, SNR_min, SNR_max, alpha = SNR_power)
 
-from GWSamplegen.noise_utils import get_valid_noise_times_from_segments #, get_data_from_OzStar
+from GWSamplegen.noise_utils import get_valid_noise_times_from_segments, psd_from_segments
 if noise_segments is None:
     valid_times, _, _ = get_valid_noise_times(noise_dir,duration)
 else:
@@ -828,8 +872,12 @@ print(len(valid_times), "GPS times available")
 
 #load PSD 
 
-
-psds = load_psd(noise_dir, duration, detectors, f_lower, int(1/delta_t))
+if noise_segments is None:
+    psds = load_psd(noise_dir, duration, detectors, f_lower, int(1/delta_t))
+else:
+    psds = {}
+    for ifo in detectors:
+        psds[ifo] = psd_from_segments(noise_segments, duration, ifo, delta_t, f_lower)
 
 all_detectors = {'H1': Detector('H1'), 'L1': Detector('L1'), 'V1': Detector('V1'), 'K1': Detector('K1')}
 
@@ -1082,6 +1130,10 @@ while generated_samples < n_signal_samples:
             #[snrs[i][detector] for detector in snrs[i]] = [snr * network_SNR_scale for snr in snrs[i].values()]
             #scale the distance of the sample, as this is how we change the SNR
             params[i]['d'] = params[i]['d'] / network_SNR_scale
+            #however, if the distance is now outisde of our prior range, we discard this sample
+            if params[i]['d'] < d_min or params[i]['d'] > d_max:
+                #we do this by setting its network SNR to 0, so it is not saved
+                params[i]['network_snr'] = 0
 
             #if np.min([snrs[i][detector] for detector in snrs[i]]) < detector_snr_threshold * network_SNR_scale:
             #    #if after scaling the network SNR one or both of the detector SNRs are below the threshold,
@@ -1259,10 +1311,10 @@ if n_noise_samples > 0:
     noise_p['mass2'] = m2_df
 
     if spin_type == "Aligned":
-        noise_p['spin1x'] = np.zeros(waveforms_per_batch)
-        noise_p['spin1y'] = np.zeros(waveforms_per_batch)
-        noise_p['spin2x'] = np.zeros(waveforms_per_batch)
-        noise_p['spin2y'] = np.zeros(waveforms_per_batch)
+        noise_p['spin1x'] = np.zeros(n_noise_samples)
+        noise_p['spin1y'] = np.zeros(n_noise_samples)
+        noise_p['spin2x'] = np.zeros(n_noise_samples)
+        noise_p['spin2y'] = np.zeros(n_noise_samples)
     
     elif spin_type == "Isotropic":
         #TODO: rename spin1z and spin2z to spin1 and spin2
@@ -1278,7 +1330,7 @@ if n_noise_samples > 0:
         raise ValueError("Invalid spin type. Please choose either 'Aligned' or 'Isotropic'.")
 
     noise_p['gps'] = []
-    noise_p['overlaps'] = np.zeros(shape=(n_signal_samples, templates_per_waveform))  # This is dummy data so it saves correctly
+    noise_p['overlaps'] = np.zeros(shape=(n_noise_samples, templates_per_waveform))  # This is dummy data so it saves correctly
     noise_p['injection'] = np.zeros(n_noise_samples, dtype = bool)
     noise_p['template_waveforms'] = np.random.randint(0, len(template_bank_params), size=(n_noise_samples,templates_per_waveform))
     templates = []

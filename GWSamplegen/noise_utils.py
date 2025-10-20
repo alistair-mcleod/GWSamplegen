@@ -655,6 +655,27 @@ def psd_preceding(noise, sample_rate, f_lower, delta_f, seconds_before = 10):
 	ret = inverse_spectrum_truncation(ret, int(4 * sample_rate), low_frequency_cutoff=f_lower)
 	return ret
 
+def segment_psd(segment, duration, detector, delta_t, f_lower):
+	psd = get_data_from_OzStar(segment, duration, detector).psd(4)
+	psd = interpolate(psd, delta_f = 1/duration)
+	psd = inverse_spectrum_truncation(psd, int(4/delta_t), low_frequency_cutoff=f_lower)
+	return psd
+
+import multiprocessing as mp
+def psd_from_segments(segments, duration, detector, delta_t, f_lower, max_segments = 100):
+	psd_seg_list = get_valid_noise_times_from_segments(segments,duration,duration)
+	#to avoid processing too many segments
+	if len(psd_seg_list) > max_segments:
+		psd_seg_list = psd_seg_list[::len(psd_seg_list)//max_segments]
+	psds = []
+	with mp.Pool(8) as p:
+		psds = p.starmap(segment_psd, [(i, duration, detector, delta_t, f_lower) for i in psd_seg_list])
+	psd_array = np.array(psds)
+	psd = np.median(psd_array, axis=0)
+	#return a pycbc frequencyseries
+	return FrequencySeries(psd, delta_f = psds[0].delta_f, epoch = psds[0].epoch)
+
+
 def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/datasets/LIGO/public/"):
 	"""OzStar-specific function for fetching GW data."""
 	if gps_start != int(gps_start):
