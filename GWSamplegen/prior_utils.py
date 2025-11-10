@@ -88,6 +88,48 @@ class TriUniform(bilby.core.prior.Prior):
 	def __repr__(self):
 		return f'TriUniform(minimum={self.minimum}, maximum={self.maximum}, mode={self.mode}, r={self.r})'
 
+def pow_uniform(a,b, alpha, r):
+	#r = probability of drawing from uniform distribution
+	#if r = 1, we draw from a uniform distribution
+	#if r = 0, we draw from a power law
+	p = np.random.uniform(0, 1)
+	if p < r:
+		return np.random.uniform(a,b)
+	else:
+		return PowerLaw(alpha,a,b).sample(1)[0]
+
+class PowUniform(bilby.core.prior.Prior):
+	""" A combination of a power law and uniform distribution
+	
+	Parameters
+	----------
+	minimum: float
+		Minimum of the distribution
+	maximum: float
+		Maximum of the distribution
+	alpha: float	
+		alpha of the triangular distribution
+	r: float	
+		Probability of drawing from the uniform distribution.
+	
+	"""
+	def __init__(self, minimum, maximum, alpha, r = 1/3, name=None, latex_label=None, unit=None, boundary=None, **kwargs):
+		self.alpha = alpha
+		self.r = r
+		super(PowUniform, self).__init__(name=name, latex_label=latex_label, minimum=minimum, maximum=maximum, unit=unit, boundary=boundary)
+
+	def rescale(self, val):
+		return pow_uniform(self.minimum, self.maximum, self.alpha, self.r)
+
+	def sample(self, size=None):
+		if size is None:
+			return self.rescale(np.random.uniform(0, 1))
+		else:
+			return np.array([self.rescale(np.random.uniform(0, 1)) for i in range(size)])
+
+	def __repr__(self):
+		return f'PowUniform(minimum={self.minimum}, maximum={self.maximum}, alpha={self.alpha}, r={self.r})'
+
 
 #construct a prior dictionary and set the priors for each parameter TODO: move to utils
 def sample_masses_from_cm_q(parameters):

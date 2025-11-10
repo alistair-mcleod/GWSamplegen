@@ -30,7 +30,7 @@ from bilby.gw.prior import UniformComovingVolume, UniformSourceFrame
 from GWSamplegen.waveform_utils import load_pycbc_templates, choose_templates_new, chirp_mass, maximum_f_lower, select_approximant, t_at_f,fast_point_distance
 from GWSamplegen.glitch_utils import get_glitchy_times, get_glitchy_gps_time
 from GWSamplegen.noise_utils import two_det_timeslide, get_valid_noise_times, load_psd
-from GWSamplegen.prior_utils import constructPrior, TriUniform, draw_mass_pair_power, draw_spin_isotropic, sample_masses_from_cm_q
+from GWSamplegen.prior_utils import constructPrior, TriUniform, PowUniform, draw_mass_pair_power, draw_spin_isotropic, sample_masses_from_cm_q
 from GWSamplegen.template_utils import find_templates
 #from asyncSNR_np import get_projected_waveform_mp
 from GWSamplegen.waveform_utils import get_projected_waveform_mp
@@ -556,6 +556,13 @@ if config_file:
             chirp_mass_max = config['chirp_mass_max']
             mass_ratio_prior = eval(config['mass_ratio_prior'])
             mass_ratio_power = config['mass_ratio_power']
+            if "chirp_mass_r" in config:
+                chirp_mass_r = config['chirp_mass_r']
+            elif chirp_mass_prior == TriUniform: #Note: this is a legacy option
+                chirp_mass_r = chirp_mass_power
+            else:
+                chirp_mass_r = None
+            print("chirp_mass_r:", chirp_mass_r)
         else:
             chirp_mass_prior = None
         if "SNR_prior" in config:
@@ -815,10 +822,15 @@ if chirp_mass_prior is not None:
         chirp_mass_max = min(chirp_mass_max, chirp_mass(mass1_max, mass2_max))
         print(f"chirp and component mass ranges for this bin: chirp mass {chirp_mass_min:.2f} - {chirp_mass_max:.2f}, m1: {mass1_min:.2f} - {mass1_max:.2f}, m2: {1:.2f} - {mass2_max:.2f}")
 
-        #TODO: generalise this stuff
         #pdict = PriorDict(conversion_function = sample_masses_from_cm_q)
-        prior['chirp_mass'] = constructPrior(TriUniform, chirp_mass_min, chirp_mass_max, mode = chirp_mass_min, r = chirp_mass_power)
-        prior['mass_ratio'] = constructPrior(PowerLaw, 0.01, 1, alpha = 0)
+        #TODO: generalise this stuff
+        if chirp_mass_prior == TriUniform:
+            prior['chirp_mass'] = constructPrior(TriUniform, chirp_mass_min, chirp_mass_max, mode = chirp_mass_min, r = chirp_mass_r)
+        elif chirp_mass_prior == PowUniform:
+            prior['chirp_mass'] = constructPrior(PowUniform, chirp_mass_min, chirp_mass_max, alpha = chirp_mass_power, r = chirp_mass_r)
+        else:
+            prior['chirp_mass'] = constructPrior(chirp_mass_prior, chirp_mass_min, chirp_mass_max, alpha = chirp_mass_power)
+        #prior['mass_ratio'] = constructPrior(PowerLaw, 0.01, 1, alpha = 0)
         prior['mass1_source'] = bilby.core.prior.Constraint(mass1_min, mass1_max, name= 'm1')
         prior['mass2_source'] = bilby.core.prior.Constraint(mass2_min, mass2_max, name= 'm2')
 
@@ -826,7 +838,7 @@ if chirp_mass_prior is not None:
         prior['chirp_mass'] = constructPrior(chirp_mass_prior, chirp_mass(mass1_min, mass2_min), 
                                             chirp_mass(mass1_max, mass2_max), 
                                             mode = chirp_mass(mass1_min, mass2_min),
-                                            r = chirp_mass_power)
+                                            r = chirp_mass_r)
     else:
         prior['chirp_mass'] = constructPrior(chirp_mass_prior, chirp_mass(mass1_min, mass2_min), 
                                             chirp_mass(mass1_max, mass2_max), 
