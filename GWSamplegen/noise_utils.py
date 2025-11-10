@@ -204,7 +204,7 @@ def load_noise(
 	return segments
 
 
-def fetch_noise_loaded(    
+def fetch_noise_loaded(
 	noise_list: List[np.ndarray],
 	noise_len: int,
 	noise_start_time: List[int],
@@ -286,6 +286,7 @@ def two_det_timeslide(
 	
 	"""A generator that returns a time slide from a list of valid noise times.
 	Avoids creating time slides that are too similar to previous time slides.
+	NOTE: this function actually works for N >= 2 detectors. TODO: rename it.
 	
 	Parameters
 	----------
@@ -310,6 +311,7 @@ def two_det_timeslide(
 	min_length = min(data_lengths)
 	max_combos = (min_length - (min_distance - 1)) * (min_length - min_distance)
 	while True:
+		#use a Cantor pairing function to generate unique indices
 		idx = np.random.randint(0,np.prod(data_lengths))
 		sample_indicies = np.unravel_index(idx, data_lengths)
 

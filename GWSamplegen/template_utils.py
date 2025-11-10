@@ -47,11 +47,16 @@ def find_templates(waveform, args, futile_limit = 10, match_target = 0.9, requir
 
     hp = None
     if temp_td_approximant in td_approximants():
-        hp,_ = get_td_waveform(approximant=temp_td_approximant, mass1=waveform['mass1'], mass2=waveform['mass2'],
-                            spin1x=waveform['spin1x'], spin2x=waveform['spin2x'],
-                            spin1y=waveform['spin1y'], spin2y=waveform['spin2y'],
-                            spin1z=waveform['spin1z'], spin2z=waveform['spin2z'],
-                            f_lower=temp_f_lower, delta_t=1/(8*2048))
+        try:
+            hp,_ = get_td_waveform(approximant=temp_td_approximant, mass1=waveform['mass1'], mass2=waveform['mass2'],
+                                spin1x=waveform['spin1x'], spin2x=waveform['spin2x'],
+                                spin1y=waveform['spin1y'], spin2y=waveform['spin2y'],
+                                spin1z=waveform['spin1z'], spin2z=waveform['spin2z'],
+                                f_lower=temp_f_lower, delta_t=1/(8*2048))
+        except:
+            print("Failed to generate waveform for injection. Parameters:", waveform, flush=True)
+            hp,_ = get_td_waveform(approximant=temp_td_approximant, mass1=waveform['mass1'], mass2=waveform['mass2'],
+                    f_lower=temp_f_lower, delta_t=1/(8*2048))
         hp = hp.resample(1/2048)
 
         if -hp.sample_times[0] > args["duration"]:

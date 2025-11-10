@@ -63,14 +63,23 @@ def get_snr(args):
                 approximant = temp_td, f_lower = temp_f_lower, delta_t = delta_t/4
             )
         except:
-            hp, hc = get_td_waveform(
-                mass1 = args['mass1'], mass2 = args['mass2'], 
-                spin1x = args['spin1x'], spin2x = args['spin2x'],
-                spin1y = args['spin1y'], spin2y = args['spin2y'],
-                spin1z = args['spin1z'], spin2z = args['spin2z'],
-                inclination = args['i'], distance = args['d'],
-                approximant = temp_td, f_lower = temp_f_lower, delta_t = delta_t / 8, f_final = 8/delta_t
-            )
+            try:
+                hp, hc = get_td_waveform(
+                    mass1 = args['mass1'], mass2 = args['mass2'], 
+                    spin1x = args['spin1x'], spin2x = args['spin2x'],
+                    spin1y = args['spin1y'], spin2y = args['spin2y'],
+                    spin1z = args['spin1z'], spin2z = args['spin2z'],
+                    inclination = args['i'], distance = args['d'],
+                    approximant = temp_td, f_lower = temp_f_lower, delta_t = delta_t / 8, f_final = 8/delta_t
+                )
+            except:
+                print("Failed to generate waveform. Parameters:", args, flush = True)
+                print("trying again with no spins.")
+                hp, hc = get_td_waveform(
+                    mass1 = args['mass1'], mass2 = args['mass2'], 
+                    inclination = args['i'], distance = args['d'],
+                    approximant = temp_td, f_lower = temp_f_lower, delta_t = delta_t / 8, f_final = 8/delta_t
+                )
         #downsample to the correct delta_t
         hp = hp.resample(delta_t)
         hc = hc.resample(delta_t)
@@ -803,6 +812,7 @@ if chirp_mass_prior is not None:
         mass2_min = np.clip(1, mass2_min, mass2_max)
         mass1_max = np.clip(max_m1, mass1_min, mass1_max)
         mass2_max = np.clip(max_m2, mass2_min, mass2_max)
+        chirp_mass_max = min(chirp_mass_max, chirp_mass(mass1_max, mass2_max))
         print(f"chirp and component mass ranges for this bin: chirp mass {chirp_mass_min:.2f} - {chirp_mass_max:.2f}, m1: {mass1_min:.2f} - {mass1_max:.2f}, m2: {1:.2f} - {mass2_max:.2f}")
 
         #TODO: generalise this stuff
@@ -992,6 +1002,13 @@ while generated_samples < n_signal_samples:
     z = []
     for key in range(len(p['mass1_source'])):
         z.append(cosmo.z_at_value(cosmol.luminosity_distance, u.Quantity(p['d'][key], u.Mpc)))
+        #do a check here to ensure neither mass exceeds 250 solar masses in detector frame, as higher values can cause issues with waveform generation
+        if p['mass1_source'][key] * (1 + z[key]) > 250:
+            #print("Reducing mass1 from ", p['mass1_source'][key] * (1 + z[key]), " to 250 solar masses in detector frame")
+            p['mass1_source'][key] = 250 / (1 + z[key])
+        if p['mass2_source'][key] * (1 + z[key]) > 250:
+            #print("Reducing mass2 from ", p['mass2_source'][key] * (1 + z[key]), " to 250 solar masses in detector frame")
+            p['mass2_source'][key] = 250 / (1 + z[key])
         m1_df.append(p['mass1_source'][key] * (1 + z[key]))
         m2_df.append(p['mass2_source'][key] * (1 + z[key]))
     p['z'] = z
@@ -1016,6 +1033,13 @@ while generated_samples < n_signal_samples:
         p['spin2z'] = np.array(p['spin2z'])
     else:
         raise ValueError("Invalid spin type. Please choose either 'Aligned' or 'Isotropic'.")
+
+    for key in range(len(p['mass1_source'])):
+        #we also need to check for negative spin issues. Seems to occur at extreme mass ratios with spin1z < -0.5
+        #TODO: determine if there's a way to check for this before waveform generation
+        if p['mass2_source'][key]/p['mass1_source'][key] < 0.05 and p['spin1z'][key] < -0.2:
+            print("Reducing spin1z", p['spin1z'][key], " for mass1 ", p['mass1_source'][key], " and mass2 ", p['mass2_source'][key])
+            p['spin1z'][key]/=2
 
     #adding non-sampled args to the parameters
     p['gps'] = []
@@ -1277,7 +1301,7 @@ if not d_eff_scaling and np.max([i['network_snr'] for i in good_params]) < 500:
 if n_signal_samples > 0:
     good_params_dict = {key: np.array([good_params[i][key] for i in range(len(good_params))][:n_signal_samples]) for key in good_params[0].keys()}
 
-np.save(project_dir+"/"+"params_{}.npy".format(job_id), good_params_dict)
+#np.save(project_dir+"/"+"params_{}.npy".format(job_id), good_params_dict)
 
 
 #generate noise samples. most of the parameters aren't used, but the masses are used to choose the templates.

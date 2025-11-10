@@ -40,6 +40,9 @@ def t_at_f(
     t_at_f: float
         Time at which the binary system will reach the given frequency, in seconds.
     """
+    #enforce that this function only uses float64 to avoid overflow issues
+    m1 = np.float64(m1)
+    m2 = np.float64(m2)
     top = 5 * ((3e8)**5) * (((m1+m2)*1.99e30)**(1/3))
     bottom = (f**(8/3))*256*(np.pi**(8/3)) * ((6.67e-11)**(5/3)) *m1*m2 * 1.99e30 * 1.99e30
     #adding a 1% fudge factor as it's better to overestimate the time than underestimate it for the purpose of avoiding glitches
@@ -69,7 +72,9 @@ def f_at_t(
     f_at_t: float
         Frequency of the binary system at the given time, in Hz.
     """
-
+    #enforce that this function only uses float64 to avoid overflow issues
+    m1 = np.float64(m1)
+    m2 = np.float64(m2)
     top = 5 * ((3e8)**5) * (((m1+m2)*2e30)**(1/3))
     bottom = t*256*(np.pi**(8/3)) * ((6.67e-11)**(5/3)) *m1*m2 * 2e30 * 2e30
 
@@ -436,8 +441,12 @@ def get_projected_waveform_mp(args):
 		try:
 			hp, hc = get_td_waveform(args, approximant = temp_approximant, f_lower = f_lower_temp, delta_t = delta_t_temp)
 		except:
-			hp, hc = get_td_waveform(args, approximant = temp_approximant, f_lower = f_lower_temp, delta_t = delta_t_temp/8)
-			print("ignore previous error, waveform generated successfully.")
+			try:
+				hp, hc = get_td_waveform(args, approximant = temp_approximant, f_lower = f_lower_temp, delta_t = delta_t_temp/8)
+				print("ignore previous error, waveform generated successfully.")
+			except:
+				print("Failed to generate waveform. Parameters:", args)
+				exit(1)
 		hp = hp.resample(args["delta_t"])
 		hc = hc.resample(args["delta_t"])
 	
