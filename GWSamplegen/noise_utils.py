@@ -395,6 +395,51 @@ def overlapping_intervals(
 
 	return res
 
+def exclusive_intervals(arr0, arr1):
+	"""
+	Find segments where detector arr0 is active but arr1 is not.
+
+	Designed to be used with the outputs of `get_seg_list` as the inputs.
+
+	Parameters
+	----------
+
+	arr1: List[Tuple[int]]
+		List of segments from the first detector
+	
+	arr2: List[Tuple[int]]
+		List of segments from the second detector
+
+	"""
+	res = []
+	check_time = 0
+	for seg0 in arr0:
+		check_time = seg0[0]
+		for seg1 in arr1:
+			if seg1[1] <= check_time:
+				#this seg1 is irrelevant
+				continue
+			elif seg1[0] >= seg0[1]:
+				#no more overlapping seg1s
+				if check_time == seg0[0]:
+					#the whole seg0 is valid
+					res.append(seg0)
+				break
+			else:
+				if seg1[0] > check_time:
+					#there is a valid segment before seg1
+					res.append([check_time, min(seg1[0], seg0[1])])
+				check_time = max(check_time, seg1[1])
+				print("check_time updated to ", check_time)
+				if check_time >= seg0[1]:
+					#no more valid time in seg0
+					break
+		if check_time < seg0[1]:
+			#there is a valid segment at the end of seg0
+			res.append([check_time, seg0[1]])
+	if not res:
+		return [[]]
+	return res
 
 def get_seg_list(
 	file_name: Path, 
@@ -488,6 +533,49 @@ def combine_seg_list(
 	good_segs = [x for x in good_segs if x[1] - x[0] >= min_duration]
 
 	return good_segs, good_segs_h1, good_segs_l1
+
+def exclusive_seg_list(
+		ifo_include: Path,
+		ifo_exclude: Path,
+		macrostart: int,
+		macroend: int,
+		min_duration: int,
+		*args: Path
+) -> Tuple[List[Tuple[int]], List[Tuple[int]], List[List[Tuple[int]]]]:
+
+	"""
+	Find segments where detector ifo_include is active but ifo_exclude is not. Additional
+	detectors can be excluded by passing in additional segment list paths as args.
+
+	Parameters
+	----------
+
+	ifo_include: Path
+		path to segment list of the detector to include
+	
+	ifo_exclude: Path
+		path to segment list of the detector to exclude
+	
+	*args: Path
+		Additional paths to segment lists of detectors to exclude
+	Returns
+	-------
+	good_segs: List[Tuple[int]]
+		List of segments where ifo_include is active but ifo_exclude is not
+	"""
+	good_segs_include = get_seg_list(ifo_include, macrostart, macroend)
+	excluded = []
+	good_segs_exclude = get_seg_list(ifo_exclude, macrostart, macroend)
+	excluded.append(good_segs_exclude)
+	for ifo in args:
+		good_segs_exclude = get_seg_list(ifo, macrostart, macroend)
+		excluded.append(good_segs_exclude)
+	for ex in excluded:
+		good_segs_include = exclusive_intervals(good_segs_include, ex)
+	good_segs = good_segs_include
+	#remove segments shorter than min_duration
+	good_segs = [x for x in good_segs if x[1] - x[0] >= min_duration]
+	return good_segs, good_segs_include, excluded
 
 
 #PSD UTILS
@@ -599,7 +687,7 @@ def get_valid_noise_times_from_segments(
 		run: str = "O3a",
 		ifos: List[str] = ["H1", "L1"],
 		blacklisting = True,
-		f_lower = 30
+		f_lower = 30,
 		) -> np.ndarray:
 	"""Get valid noise times from a list of segment tuples. Returns a list of valid GPS times.
 	Produces more general GPS time lists than `get_valid_noise_times`, but does not return valid
@@ -616,7 +704,8 @@ def get_valid_noise_times_from_segments(
 	run: str
 		The observation run to use for the noise files. TODO: add O4a and support for multiple runs.
 	ifos: List[str]
-		List of interferometers to consider. Currently only supports H1 and L1.
+		List of interferometers to consider. Currently supports times when H1 and L1 are both active, or when only one of them is active.
+		TODO: add support for only considering one ifo, irrespective of the state of the other.
 	blacklisting: bool
 		If True, will remove any GPS times that are too close to detected events.
 	f_lower: int
@@ -624,12 +713,21 @@ def get_valid_noise_times_from_segments(
 	
 	valid_times = np.array([])
 	ifo_1 = "{}_{}.txt".format(ifos[0], run)
-	ifo_2 = "{}_{}.txt".format(ifos[1], run)
+	if len(ifos) > 1:
+		ifo_2 = "{}_{}.txt".format(ifos[1], run)
+	elif ifos[0] == "H1":
+		ifo_2 = "{}_{}.txt".format("L1", run)
+	elif ifos[0] == "L1":
+		ifo_2 = "{}_{}.txt".format("H1", run)
 	ifo_1 = impresources.files(segments).joinpath(ifo_1)
 	ifo_2 = impresources.files(segments).joinpath(ifo_2)
+	ifo_3 = impresources.files(segments).joinpath("V1_{}.txt".format(run)) #TODO: remove the requirement that V1 is excluded
 
 	for start_time, end_time in segment_tuples:
-		segs, _, _ = combine_seg_list(ifo_1,ifo_2,start_time,end_time, min_duration=noise_len)
+		if ifos == ["H1", "L1"]:
+			segs, _, _ = combine_seg_list(ifo_1,ifo_2,start_time,end_time, min_duration=noise_len)
+		elif len(ifos) ==1:
+			segs, _, _ = exclusive_seg_list(ifo_1, ifo_2, start_time, end_time, noise_len, ifo_3)
 
 		for seg in segs:
 			times = np.arange(seg[0], seg[1] - noise_len +1 , min_step)
