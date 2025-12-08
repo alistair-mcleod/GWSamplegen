@@ -790,3 +790,35 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/dat
 		return None
 
 	return dat
+
+
+def get_data_from_local(gps_start, duration, ifo, gwf_files, verbose = False):
+	"""Check local .gwf files for data covering the requested gps time. Designed
+	to assist with running scripts in a HTCondor environment."""
+	
+	obsrun_format = {
+		"O1": {"frame": "_LOSC_4_V1", "channel": ":LOSC-STRAIN"},
+		"O2": {"frame": "_GWOSC_O2_4KHZ_R1", "channel": ":GWOSC-4KHZ_R1_STRAIN"},
+		"O3a": {"frame": "_GWOSC_O3a_4KHZ_R1", "channel": ":GWOSC-4KHZ_R1_STRAIN"},
+		"O3b": {"frame": "_GWOSC_O3b_4KHZ_R1", "channel": ":GWOSC-4KHZ_R1_STRAIN"},
+		"O4a": {"frame": "_GWOSC_O4a_4KHZ_R1", "channel": ":GWOSC-4KHZ_R1_STRAIN"},
+	}
+
+	if gps_start >= 1126051217 and gps_start < 1137254417:
+		run = "O1"
+	elif gps_start >= 1164556817 and gps_start < 1187733618:
+		run = "O2"
+	elif gps_start >= 1238166018 and gps_start < 1253977218:
+		run = "O3a"
+	elif gps_start >= 1256655618 and gps_start < 1269363618:
+		run = "O3b"
+	elif gps_start >= 1368195220 and gps_start < 1389456018:
+		run = "O4a"
+
+	if verbose:
+		print("Checking local .gwf files for data...")
+	data = GWPYTimeSeries.read(gwf_files, channel = f"{ifo}{obsrun_format[run]["channel"]}", format="gwf", start = gps_start, end = gps_start+duration).to_pycbc()
+	#print("data:", data)
+	#resample to 2048 Hz
+	data = data.resample(1/2048)
+	return data
