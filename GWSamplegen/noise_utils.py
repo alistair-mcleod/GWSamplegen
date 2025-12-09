@@ -938,7 +938,7 @@ def get_data_from_local(gps_start, duration, ifo, gwf_files, verbose = False):
 
 	if verbose:
 		print("Checking local .gwf files for data...")
-	data = GWPYTimeSeries.read(gwf_files, channel = f"{ifo}{obsrun_format[run]["channel"]}", format="gwf", start = gps_start, end = gps_start+duration).to_pycbc()
+	data = GWPYTimeSeries.read(gwf_files, channel = f"{ifo}{obsrun_format[run]['channel']}", format="gwf", start = gps_start, end = gps_start+duration).to_pycbc()
 	#print("data:", data)
 	#resample to 2048 Hz
 	data = data.resample(1/2048)
