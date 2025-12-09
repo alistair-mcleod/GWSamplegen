@@ -430,7 +430,7 @@ def exclusive_intervals(arr0, arr1):
 					#there is a valid segment before seg1
 					res.append([check_time, min(seg1[0], seg0[1])])
 				check_time = max(check_time, seg1[1])
-				print("check_time updated to ", check_time)
+				#print("check_time updated to ", check_time)
 				if check_time >= seg0[1]:
 					#no more valid time in seg0
 					break
