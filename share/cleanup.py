@@ -29,12 +29,12 @@ elif file_type == "data":
 	filename = ["SNR", "SNR_abs", "strain", "spectrogram", "spectrogram_re", "spectrogram_im", "spectrogram_q", "spectrogram_vitmap", "spectrogram_lineaware"]
 else:
 	raise ValueError("filetype must be 'params' or 'data'")
-x = np.load(os.path.join(project_dir, "params_0.npy"), allow_pickle=True).item()
 
 
 #need to load in this order to ensure samples remain saved as signals first, then noise
 
 if file_type == "params":
+	x = np.load(os.path.join(project_dir, "params_0.npy"), allow_pickle=True).item()
 	z = {}
 
 	def get_signal_end(injection_array):
