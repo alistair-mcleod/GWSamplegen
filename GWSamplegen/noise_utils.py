@@ -684,15 +684,14 @@ def get_valid_noise_times_from_segments(
 		segment_tuples: List[Tuple[int,int]],
 		noise_len: int,
 		min_step: int = 1,
-		run: str = "O3a",
 		ifos: List[str] = ["H1", "L1"],
-		blacklisting = True,
-		f_lower = 30,
-		) -> np.ndarray:
+		blacklisting: bool = True,
+		f_lower: int = 30
+) -> np.ndarray:
 	"""Get valid noise times from a list of segment tuples. Returns a list of valid GPS times.
 	Produces more general GPS time lists than `get_valid_noise_times`, but does not return valid
 	noise file paths. 
-	
+
 	Parameters
 	----------
 	segment_tuples: List[Tuple[int,int]]
@@ -701,16 +700,39 @@ def get_valid_noise_times_from_segments(
 		Minimum length of noise segments to consider, in seconds.
 	min_step: int
 		If specified, will ensure that valid times are min_step seconds apart from each other.
-	run: str
-		The observation run to use for the noise files. TODO: add O4a and support for multiple runs.
 	ifos: List[str]
 		List of interferometers to consider. Currently supports times when H1 and L1 are both active, or when only one of them is active.
 		TODO: add support for only considering one ifo, irrespective of the state of the other.
 	blacklisting: bool
 		If True, will remove any GPS times that are too close to detected events.
 	f_lower: int
-		Lower frequency cutoff for the PSDs, used for blacklisting."""
-	
+		Lower frequency cutoff for the PSDs, used for blacklisting.
+	"""
+
+	run_list = []
+	for start_time, end_time in segment_tuples:
+		if start_time >= 1126051217 and start_time < 1137254417:
+			run = "O1"
+		elif start_time >= 1164556817 and start_time < 1187733618:
+			run = "O2"
+		elif start_time >= 1238166018 and start_time < 1253977218:
+			run = "O3a"
+		elif start_time >= 1256655618 and start_time < 1269363618:
+			run = "O3b"
+		elif start_time >= 1368195220 and start_time < 1389456018:
+			run = "O4a"
+		else:
+			run = ""
+
+		run_list.append(run)
+
+	if "" in run_list or len(set(run_list)) != 1:
+		print("All segment tuples must come from the same run (and be within known run GPS ranges).")
+		raise ValueError
+
+	run = run_list[0]
+	print(run)
+
 	valid_times = np.array([])
 	ifo_1 = "{}_{}.txt".format(ifos[0], run)
 	if len(ifos) > 1:
@@ -721,7 +743,9 @@ def get_valid_noise_times_from_segments(
 		ifo_2 = "{}_{}.txt".format("H1", run)
 	ifo_1 = impresources.files(segments).joinpath(ifo_1)
 	ifo_2 = impresources.files(segments).joinpath(ifo_2)
-	ifo_3 = impresources.files(segments).joinpath("V1_{}.txt".format(run)) #TODO: remove the requirement that V1 is excluded
+	if len(ifos) == 1:
+		#TODO: remove the requirement that V1 is the excluded ifo
+		ifo_3 = impresources.files(segments).joinpath("V1_{}.txt".format(run))
 
 	for start_time, end_time in segment_tuples:
 		if ifos == ["H1", "L1"]:
@@ -735,16 +759,15 @@ def get_valid_noise_times_from_segments(
 				if (seg[1] - noise_len) - times[-1] > 2 and min_step != 1:
 					times = np.append(times, seg[1] - noise_len)
 				else:
-					
 					print("ignoring a {} second segment".format((seg[1] - noise_len) - times[-1]))
 			valid_times = np.concatenate([valid_times, times])
 
 		if blacklisting:
-
 			gps_blacklist = load_gps_blacklist(f_lower)
-			n_blacklisted = len(np.where(np.isin(valid_times, gps_blacklist-noise_len//2))[0])
+			n_blacklisted = len(np.where(np.isin(valid_times, gps_blacklist - noise_len // 2))[0])
 			print("{} GPS times are too close to detected events and have been removed".format(n_blacklisted))
-			valid_times = np.delete(valid_times, np.where(np.isin(valid_times, gps_blacklist-noise_len//2)))
+			valid_times = np.delete(valid_times, np.where(np.isin(valid_times, gps_blacklist - noise_len // 2)))
+
 	valid_times = np.sort(valid_times)
 	return valid_times
 

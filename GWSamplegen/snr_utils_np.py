@@ -222,7 +222,7 @@ def mf_in_place(
 )-> np.ndarray:
     """A more optimised version of numpy_matched_filter. By precomputing template_conj with np.conjugate(template), 
     and template_norm with np_sigmasq we can speed up matched filtering by about 20% and reduce memory usage by half.
-    This is only useful if you are matching with the SAME template array with a diferent sample array multiple times, 
+    This is only useful if you are matching with the SAME template array with a different sample array multiple times, 
     such as in a background run or injection run.
 
     Parameters
