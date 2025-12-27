@@ -565,6 +565,12 @@ if config_file:
             print("chirp_mass_r:", chirp_mass_r)
         else:
             chirp_mass_prior = None
+        if "mass_ratio_min" in config:
+            mass_ratio_min = config['mass_ratio_min']
+            mass_ratio_max = config['mass_ratio_max']
+        else:
+            mass_ratio_min = 0.01
+            mass_ratio_max = 1.0
         if "SNR_prior" in config:
             SNR_prior = eval(config['SNR_prior'])
             SNR_power = config['SNR_power']
@@ -656,6 +662,12 @@ if config_file:
             template_chirp_mass_max = config['template_chirp_mass_max']
             print("using template chirp mass constraints", template_chirp_mass_min, template_chirp_mass_max)
             template_mass1_min = None
+            if "template_q_min" in config:
+                template_q_min = config['template_q_min']
+                template_q_max = config['template_q_max']
+                print("using template mass ratio constraints", template_q_min, template_q_max)
+            else:
+                template_q_min = None
 
         if "constrain_to_templates" in config:
             constrain_to_templates = config['constrain_to_templates']
@@ -772,6 +784,9 @@ elif bank_type == "pycbc_smart_match":
                 (template_bank_params[:,2] > template_mass2_min) & (template_bank_params[:,2] < template_mass2_max))
     elif template_chirp_mass_min is not None:
         cut = ((template_bank_params[:,0] > template_chirp_mass_min) & (template_bank_params[:,0] < template_chirp_mass_max))
+        if template_q_min is not None:
+            q = template_bank_params[:,2] / template_bank_params[:,1]
+            cut = cut & (q > template_q_min) & (q < template_q_max)
     else:
         cut = np.ones(len(template_bank_params), dtype=bool)
     aXis = aXis[:,cut]
@@ -807,8 +822,8 @@ if chirp_mass_prior is not None:
     print("sampling m1 and m2 using chirp mass prior")
     if constrain_to_templates:
 
-        #find max m1 by setting m2 = 1
-        max_m1 = mass2_from_mchirp_mass1(chirp_mass_max, 1)
+        #find max m1 by setting m2 = mass2_min
+        max_m1 = mass2_from_mchirp_mass1(chirp_mass_max, mass2_min)
         #find max m2 by setting m2 = m1
         max_m2 = chirp_mass_max * 2**(1/5)
         #min m1 is at the minimum chirp mass and q = 1
@@ -843,7 +858,10 @@ if chirp_mass_prior is not None:
         prior['chirp_mass'] = constructPrior(chirp_mass_prior, chirp_mass(mass1_min, mass2_min), 
                                             chirp_mass(mass1_max, mass2_max), 
                                             alpha = chirp_mass_power)
-    prior['mass_ratio'] = constructPrior(mass_ratio_prior, mass2_min/mass1_max, min(mass2_max/mass1_min,1), alpha = mass_ratio_power)
+    mass_ratio_min = max(mass2_min/mass1_max, mass_ratio_min)
+    mass_ratio_max = min(mass2_max/mass1_min, mass_ratio_max)
+    print("mass ratio min and max: ", mass_ratio_min, mass_ratio_max)
+    prior['mass_ratio'] = constructPrior(mass_ratio_prior, mass_ratio_min, mass_ratio_max, alpha = mass_ratio_power)
     prior['mass1_source'] = bilby.core.prior.Constraint(minimum=mass1_min, maximum=mass1_max, name='mass1_source')
     prior['mass2_source'] = bilby.core.prior.Constraint(minimum=mass2_min, maximum=mass2_max, name='mass2_source')
 
