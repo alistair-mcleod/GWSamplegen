@@ -527,7 +527,10 @@ if config_file:
             template_range = config['template_range']
             template_selection = config['template_selection']
             template_selection_skewed = config['template_selection_skewed']
-        noise_dir = config['noise_dir']
+        if 'noise_dir' in config:
+            noise_dir = config['noise_dir']
+        else:
+            noise_dir = None
         noise_type = config['noise_type']
         templates_per_waveform = config['templates_per_waveform']
         td_approximant = config['td_approximant']
@@ -783,10 +786,10 @@ elif bank_type == "pycbc_smart_match":
         cut = ((template_bank_params[:,1] > template_mass1_min) & (template_bank_params[:,1] < template_mass1_max) &
                 (template_bank_params[:,2] > template_mass2_min) & (template_bank_params[:,2] < template_mass2_max))
     elif template_chirp_mass_min is not None:
-        cut = ((template_bank_params[:,0] > template_chirp_mass_min) & (template_bank_params[:,0] < template_chirp_mass_max))
+        cut = ((template_bank_params[:,0] > template_chirp_mass_min) & (template_bank_params[:,0] <= template_chirp_mass_max))
         if template_q_min is not None:
             q = template_bank_params[:,2] / template_bank_params[:,1]
-            cut = cut & (q > template_q_min) & (q < template_q_max)
+            cut = cut & (q > template_q_min) & (q <= template_q_max)
     else:
         cut = np.ones(len(template_bank_params), dtype=bool)
     aXis = aXis[:,cut]
