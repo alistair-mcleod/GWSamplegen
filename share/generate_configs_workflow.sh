@@ -41,7 +41,6 @@ configs_cpus=28
 #create a string of jobs for easy cancellation
 cancel_string=""
 
-#comment out the block of lines below if you don't need to generate new configs
 #check if save_dir/params.npy already exists, if it does, skip config generation
 if [ -f $save_dir/params.npy ]; then
 	echo "Params file already exists, skipping config generation"
@@ -94,17 +93,3 @@ cancel_string="$cancel_string $final"
 echo "Final job: "
 echo $final
 echo "To cancel all jobs, run: scancel $cancel_string"
-
-#also test the new splitfile method in parallel
-
-# SNR_jobname_split="SNR_split_"$jobname
-
-# if [ -z "$cleanup" ]; then
-# 	SNR_job_split=$(sbatch --job-name=${SNR_jobname_split} --parsable ${GWSAMPLEGEN_DIR}/share/SNR_np_splitfile.sh $config_file)
-	
-# else
-# 	SNR_job_split=$(sbatch --job-name=${SNR_jobname_split} --dependency=afterok:$cleanup --parsable ${GWSAMPLEGEN_DIR}/share/SNR_np_splitfile.sh $config_file)
-# fi
-
-# final_split_name="SNR_split_cleanup_"$jobname
-# final_split=$(sbatch --job-name=${final_split_name} --mem=100G --ntasks=2 --dependency=afterok:$SNR_job_split --parsable ${GWSAMPLEGEN_DIR}/share/cleanup.sh $save_dir $n_jobs "data")
