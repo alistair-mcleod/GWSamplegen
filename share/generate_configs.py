@@ -677,6 +677,12 @@ if config_file:
             print("constraining masses to be within template bank range")
         else:
             constrain_to_templates = False
+        
+        if "glitch_snr_threshold" in config:
+            glitch_SNR_threshold = config['glitch_snr_threshold']
+            print("using glitch SNR threshold of ", glitch_SNR_threshold)
+        else:
+            glitch_SNR_threshold = 7 #default from earlier runs
 
         if not os.path.exists(project_dir):
             os.makedirs(project_dir, exist_ok=True)
@@ -711,20 +717,21 @@ else:
 
 waveforms_per_batch = max(min(n_signal_samples//5, 1000), 100)
 
-if not os.path.exists(noise_dir):
-    raise ValueError("Noise directory does not exist. Generate a directory of noise to use with this dataset.")
-
-#check that these parameters are compatible with those from the noise directory
-with open(noise_dir + '/args.json') as f:
-    noise_args = json.load(f)
-    for ifo in detectors:
-        if ifo not in noise_args['detectors']:
-            raise ValueError("""Noise directory does not contain all the specified detectors.
-                             Check noise directory and config file.""")
-   
-    if noise_args['delta_t'] != delta_t:
-        raise ValueError("""Noise delta_t does not match specified delta_t.
-                             Check noise directory and config file.""")
+if noise_dir is not None and noise_type != "Gaussian":
+    if not os.path.exists(noise_dir):
+        raise ValueError("Noise directory does not exist. Generate a directory of noise to use with this dataset.")
+    
+    #check that these parameters are compatible with those from the noise directory
+    with open(noise_dir + '/args.json') as f:
+        noise_args = json.load(f)
+        for ifo in detectors:
+            if ifo not in noise_args['detectors']:
+                raise ValueError("""Noise directory does not contain all the specified detectors.
+                                Check noise directory and config file.""")
+    
+        if noise_args['delta_t'] != delta_t:
+            raise ValueError("""Noise delta_t does not match specified delta_t.
+                                Check noise directory and config file.""")
 
 import h5py
 from pycbc.tmpltbank.coord_utils import get_cov_params
@@ -838,6 +845,12 @@ if chirp_mass_prior is not None:
         mass1_max = np.clip(max_m1, mass1_min, mass1_max)
         mass2_max = np.clip(max_m2, mass2_min, mass2_max)
         chirp_mass_max = min(chirp_mass_max, chirp_mass(mass1_max, mass2_max))
+
+        mass1_min = max(mass1_min, template_mass1_min)
+        mass1_max = min(mass1_max, template_mass1_max)
+        mass2_min = max(mass2_min, template_mass2_min)
+        mass2_max = min(mass2_max, template_mass2_max)
+        
         print(f"chirp and component mass ranges for this bin: chirp mass {chirp_mass_min:.2f} - {chirp_mass_max:.2f}, m1: {mass1_min:.2f} - {mass1_max:.2f}, m2: {1:.2f} - {mass2_max:.2f}")
 
         #pdict = PriorDict(conversion_function = sample_masses_from_cm_q)
@@ -951,8 +964,6 @@ if duration < 2*max_waveform_length:
     print("Please fix the duration input parameter.")
     exit()
 
-#TODO: add glitch SNR threshold as a config parameter
-SNR_thresh = 7
 
 if noise_type == "Real":
 
@@ -969,10 +980,10 @@ if noise_type == "Real":
     for ifo in detectors:
         if noise_segments is None:
             glitchy, glitchless, freq, glitch_snr = get_glitchy_times(noise_dir+"/{}_glitches.npy".format(ifo),
-                                            duration, valid_times, max_waveform_length, SNR_thresh, f_lower, seconds_before, seconds_after)
+                                            duration, valid_times, max_waveform_length, glitch_SNR_threshold, f_lower, seconds_before, seconds_after)
         else:
             glitchy, glitchless, freq, glitch_snr = get_glitchy_times("/fred/oz016/alistair/Omicron_all/{}_glitches.npy".format(ifo),
-                                            duration, valid_times, max_waveform_length, SNR_thresh, f_lower, seconds_before, seconds_after)
+                                            duration, valid_times, max_waveform_length, glitch_SNR_threshold, f_lower, seconds_before, seconds_after)
         glitchless_times[ifo] = glitchless
         glitchy_times[ifo] = glitchy
         glitchy_freqs[ifo] = freq

@@ -832,11 +832,15 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/dat
 
 	root = os.path.join(root, "gwosc.osgstorage.org", "gwdata")
 	#by looking in reverse order we avoid prematurely selecting the wrong chunk
-	ObsRuns = ["O3b", "O3a", "O2", "O1"]
+	ObsRuns = ["O4a", "O3b", "O3a", "O2", "O1"]
 	for run in ObsRuns:
 		if verbose:
 			print("Checking run", run)
-		chunks = np.sort(np.array(os.listdir(os.path.join(root, run, "strain.4k", "hdf.v1", ifo)), dtype = int))
+		if run == "O4a":
+			middle = "O4a_4KHZ_R1/STRAIN_HDF"
+		else:
+			middle = "strain.4k/hdf.v1"
+		chunks = np.sort(np.array(os.listdir(os.path.join(root, run, middle, ifo)), dtype = int))
 		chunkstart = np.where((chunks <= int(gps_start)))[0]
 		#chunkend = np.where((chunks >= int(gps_start+duration)))[0]
 		chunkend = np.where((chunks < int(gps_start+duration)) & (chunks > int(gps_start)))[0]
@@ -860,8 +864,8 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/dat
 		print("Bad GPS time! not found in any chunk")
 		return None
 
-	segments_start = np.sort(np.array(os.listdir(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkstart])))))
-	segments_end = np.sort(np.array(os.listdir(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkend])))))
+	segments_start = np.sort(np.array(os.listdir(os.path.join(root, run, middle, ifo,str(chunks[chunkstart])))))
+	segments_end = np.sort(np.array(os.listdir(os.path.join(root, run, middle, ifo,str(chunks[chunkend])))))
 						
 	segments_split_start = np.array([seg.split("-") for seg in segments_start])
 	segments_split_end = np.array([seg.split("-") for seg in segments_end])
@@ -877,7 +881,7 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/dat
 		simple = True
 
 	if simple:
-		dat = GWPYTimeSeries.read(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkstart]),segments_start[seg_idx]), 
+		dat = GWPYTimeSeries.read(os.path.join(root, run, middle, ifo,str(chunks[chunkstart]),segments_start[seg_idx]), 
 					format="hdf5.gwosc", start = gps_start, end = gps_start+duration)
 		#if there are NaNs, replace them with zeros and print a warning
 		if np.any(np.isnan(dat)):
@@ -889,9 +893,9 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/dat
 		dat = dat.resample(1/2048)
 
 	else:
-		dat_start = GWPYTimeSeries.read(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkstart]),segments_start[seg_idx]),
+		dat_start = GWPYTimeSeries.read(os.path.join(root, run, middle, ifo,str(chunks[chunkstart]),segments_start[seg_idx]),
 				format="hdf5.gwosc", start = gps_start)
-		dat_end = GWPYTimeSeries.read(os.path.join(root, run, "strain.4k", "hdf.v1", ifo,str(chunks[chunkend]),segments_end[seg_idx_end]),
+		dat_end = GWPYTimeSeries.read(os.path.join(root, run, middle, ifo,str(chunks[chunkend]),segments_end[seg_idx_end]),
 				format="hdf5.gwosc", end = gps_start+duration)	
 		dat_start = dat_start.to_pycbc()
 		dat_end = dat_end.to_pycbc()
