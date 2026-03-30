@@ -27,7 +27,7 @@ from bilby.core.prior import (
 )
 from bilby.gw.prior import UniformComovingVolume, UniformSourceFrame
 
-from GWSamplegen.waveform_utils import load_pycbc_templates, choose_templates_new, chirp_mass, maximum_f_lower, select_approximant, t_at_f,fast_point_distance
+from GWSamplegen.waveform_utils import load_pycbc_templates, choose_templates_new, chirp_mass, maximum_f_lower, select_approximant, t_at_f, f_at_t, fast_point_distance
 from GWSamplegen.glitch_utils import get_glitchy_times, get_glitchy_gps_time
 from GWSamplegen.noise_utils import two_det_timeslide, get_valid_noise_times, load_psd
 from GWSamplegen.prior_utils import constructPrior, TriUniform, PowUniform, draw_mass_pair_power, draw_spin_isotropic, sample_masses_from_cm_q
@@ -307,12 +307,14 @@ def get_overlaps(args):
     #     temp_td_approximant = td_approximant
     temp_td_approximant = select_approximant(args['mass1'], args['mass2'], td_approximant, domain='time')
 
+    temp_f_lower = max(10, f_at_t(args['mass1'], args['mass2'], duration//2))
+
     if temp_td_approximant in td_approximants():
         hp,_ = get_td_waveform(approximant=temp_td_approximant, mass1=args['mass1'], mass2=args['mass2'],
                             spin1x=args['spin1x'], spin2x=args['spin2x'],
                             spin1y=args['spin1y'], spin2y=args['spin2y'],
                             spin1z=args['spin1z'], spin2z=args['spin2z'],
-                            f_lower=10, delta_t=1/(8*2048))
+                            f_lower=temp_f_lower, delta_t=1/(4*2048))
 
         hp = hp.resample(delta_t)
         if -hp.sample_times[0] > duration:
@@ -339,7 +341,7 @@ def get_overlaps(args):
         temp_fd_approximant = select_approximant(template_bank_params[idx][1], template_bank_params[idx][2], fd_approximant, domain='frequency')
         hpt_f, _ = get_fd_waveform(mass1 = template_bank_params[idx][1], mass2 = template_bank_params[idx][2],
                                 spin1z = template_bank_params[idx][3], spin2z = template_bank_params[idx][4],
-                                f_lower = 10, delta_f = 1/1024, f_final = 2048*4, approximant = temp_fd_approximant)
+                                f_lower = temp_f_lower, delta_f = 1/1024, f_final = 2048, approximant = temp_fd_approximant)
         hpt_f.resize(len(hp_f))
         olap = matchedfilter.match(hp_f, hpt_f, psd=psds['L1'], low_frequency_cutoff=f_lower, high_frequency_cutoff=1024)[0]
         olaps.append(olap)
@@ -841,7 +843,7 @@ if chirp_mass_prior is not None:
         #min_m1 = mass2_from_mchirp_mass1(chirp_mass_min, max_m2)
         #now clip to the hard limits
         mass1_min = np.clip(min_m1, mass1_min, mass1_max)
-        mass2_min = np.clip(1, mass2_min, mass2_max)
+        mass2_min = np.clip(mass2_min, mass2_min, mass2_max)
         mass1_max = np.clip(max_m1, mass1_min, mass1_max)
         mass2_max = np.clip(max_m2, mass2_min, mass2_max)
         chirp_mass_max = min(chirp_mass_max, chirp_mass(mass1_max, mass2_max))
