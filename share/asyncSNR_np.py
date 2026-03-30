@@ -202,7 +202,7 @@ if __name__ == "__main__":
 		with open(config_file) as json_file:
 			config = json.load(json_file)
 			project_dir = config['project_dir']
-			noise_dir = config['noise_dir']
+			#noise_dir = config['noise_dir']
 			seed = config['seed']
 			fd_approximant = config['fd_approximant']
 			td_approximant = config['td_approximant']
@@ -216,11 +216,17 @@ if __name__ == "__main__":
 			duration = config['duration']
 			delta_t = config['delta_t']
 			project_dir = config['project_dir']
-			noise_dir = config['noise_dir']
+			if "noise_dir" in config:
+				noise_dir = config['noise_dir']
+			else:
+				noise_dir = None
+				print("no noise dir provided, assuming noise segments are provided instead")
 			if "noise_segments" in config:
 				noise_segments = config['noise_segments']
 			else:
 				noise_segments = None
+				if noise_dir is None:
+					raise ValueError("no noise dir or noise segments provided, cannot proceed")
 
 			if 'chisq' in config:
 				reduced_chisq = config['chisq']
@@ -280,6 +286,7 @@ if __name__ == "__main__":
 	#set n_cpus from os
 	n_cpus = int(os.environ['SLURM_CPUS_PER_TASK'])
 	print("n_cpus:",n_cpus)
+	mp_batch = n_cpus
 
 
 	offset = np.min((offset*sample_rate, duration//2))
@@ -316,7 +323,7 @@ if __name__ == "__main__":
 
 
 	##################################################load PSD
-	psd = np.load(noise_dir + "/psd.npy")
+	#psd = np.load(noise_dir + "/psd.npy")
 
 	#since psd[0] is the sample frequencies, and the first frequency is always 0 Hz, psd[0][1] is sample frequency
 	psds = {}

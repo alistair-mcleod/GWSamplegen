@@ -711,20 +711,8 @@ def get_valid_noise_times_from_segments(
 
 	run_list = []
 	for start_time, end_time in segment_tuples:
-		if start_time >= 1126051217 and start_time < 1137254417:
-			run = "O1"
-		elif start_time >= 1164556817 and start_time < 1187733618:
-			run = "O2"
-		elif start_time >= 1238166018 and start_time < 1253977218:
-			run = "O3a"
-		elif start_time >= 1256655618 and start_time < 1269363618:
-			run = "O3b"
-		elif start_time >= 1368195220 and start_time < 1389456018:
-			run = "O4a"
-		else:
-			run = ""
 
-		run_list.append(run)
+		run_list.append(gps_to_run(start_time))
 
 	if "" in run_list or len(set(run_list)) != 1:
 		print("All segment tuples must come from the same run (and be within known run GPS ranges).")
@@ -947,3 +935,17 @@ def get_data_from_local(gps_start, duration, ifo, gwf_files, verbose = False):
 	#resample to 2048 Hz
 	data = data.resample(1/2048)
 	return data
+
+def gps_to_run(gps_time):
+	if gps_time >= 1126051217 and gps_time < 1137254417:
+		return "O1"
+	elif gps_time >= 1164556817 and gps_time < 1187733618:
+		return "O2"
+	elif gps_time >= 1238166018 and gps_time < 1253977218:
+		return "O3a"
+	elif gps_time >= 1256655618 and gps_time < 1269363618:
+		return "O3b"
+	elif gps_time >= 1368195220 and gps_time < 1389456018:
+		return "O4a"
+	else:
+		return None
