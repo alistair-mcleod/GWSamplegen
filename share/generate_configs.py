@@ -310,11 +310,19 @@ def get_overlaps(args):
     temp_f_lower = max(10, f_at_t(args['mass1'], args['mass2'], duration//2))
 
     if temp_td_approximant in td_approximants():
-        hp,_ = get_td_waveform(approximant=temp_td_approximant, mass1=args['mass1'], mass2=args['mass2'],
-                            spin1x=args['spin1x'], spin2x=args['spin2x'],
-                            spin1y=args['spin1y'], spin2y=args['spin2y'],
-                            spin1z=args['spin1z'], spin2z=args['spin2z'],
-                            f_lower=temp_f_lower, delta_t=1/(4*2048))
+        try:
+            hp,_ = get_td_waveform(approximant=temp_td_approximant, mass1=args['mass1'], mass2=args['mass2'],
+                                spin1x=args['spin1x'], spin2x=args['spin2x'],
+                                spin1y=args['spin1y'], spin2y=args['spin2y'],
+                                spin1z=args['spin1z'], spin2z=args['spin2z'],
+                                f_lower=temp_f_lower, delta_t=1/(2048))
+        except:
+            print("Failed to get overlap with parameters ", args, "retrying with delta_t = 1/(2048*8)")
+            hp,_ = get_td_waveform(approximant=temp_td_approximant, mass1=args['mass1'], mass2=args['mass2'],
+                                spin1x=args['spin1x'], spin2x=args['spin2x'],
+                                spin1y=args['spin1y'], spin2y=args['spin2y'],
+                                spin1z=args['spin1z'], spin2z=args['spin2z'],
+                                f_lower=temp_f_lower, delta_t=1/(8*2048))
 
         hp = hp.resample(delta_t)
         if -hp.sample_times[0] > duration:
