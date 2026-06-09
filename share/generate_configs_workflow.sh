@@ -71,7 +71,7 @@ if jq -e '.SNR_mem' $config_file > /dev/null; then
 else
 	SNR_mem=""
 fi
-SNR_job=$(sbatch --job-name=${SNR_jobname} --array=0-$(($n_SNR_jobs-1)) $dep $SNR_mem --parsable ${GWSAMPLEGEN_DIR}/share/SNR_np.sh $config_file)
+SNR_job=$(sbatch --job-name=${SNR_jobname} --array=0-$(($n_SNR_jobs-1)) $dep $SNR_mem --parsable ${GWSAMPLEGEN_DIR}/share/SNR_np.sh $config_file $n_SNR_jobs)
 # if [ -z "$cleanup" ]; then
 # 	SNR_job=$(sbatch --job-name=${SNR_jobname} --parsable ${GWSAMPLEGEN_DIR}/share/SNR_np.sh $config_file)
 	
