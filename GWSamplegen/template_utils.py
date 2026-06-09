@@ -44,7 +44,13 @@ def find_templates(waveform, args, futile_limit = 10, match_target = 0.9, requir
     if temp_td_approximant in ["TaylorF2Ecc", "EccentricFD", "EccentricTD"]:
         print("Eccentric approximant detected. Using f_lower = 20 Hz.")
         temp_f_lower = 20
-
+    temp_delta_t = 1/(8*2048)
+    if temp_td_approximant == "IMRPhenomXPHM":
+        if waveform['mass1'] + waveform['mass2'] < 4:
+            temp_f_lower = 25
+            temp_delta_t = 1/2048
+        else:
+            temp_f_lower = 15
     hp = None
     if temp_td_approximant in td_approximants():
         try:
@@ -52,11 +58,11 @@ def find_templates(waveform, args, futile_limit = 10, match_target = 0.9, requir
                                 spin1x=waveform['spin1x'], spin2x=waveform['spin2x'],
                                 spin1y=waveform['spin1y'], spin2y=waveform['spin2y'],
                                 spin1z=waveform['spin1z'], spin2z=waveform['spin2z'],
-                                f_lower=temp_f_lower, delta_t=1/(8*2048))
+                                f_lower=temp_f_lower, delta_t=temp_delta_t)
         except:
             print("Failed to generate waveform for injection. Parameters:", waveform, flush=True)
             hp,_ = get_td_waveform(approximant=temp_td_approximant, mass1=waveform['mass1'], mass2=waveform['mass2'],
-                    f_lower=temp_f_lower, delta_t=1/(8*2048))
+                    f_lower=temp_f_lower, delta_t=temp_delta_t)
         hp = hp.resample(1/2048)
 
         if -hp.sample_times[0] > args["duration"]:

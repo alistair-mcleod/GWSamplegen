@@ -33,7 +33,7 @@ def run_batch(n):
 	t_ids = [int(i) for i in t_ids]
 	batch_template_params = templates[t_ids]
 
-	t_templates = np.empty((n_templates * samples_per_batch, kmax-kmin), dtype=np.complex128)
+	t_templates = np.zeros((n_templates * samples_per_batch, kmax-kmin), dtype=np.complex128)
 	#start = time.time()
 
 	# print(f'delta f: {delta_f} , f_final: {f_final} , kmin: {kmin}, kmax: {kmax}')
@@ -96,8 +96,8 @@ def run_batch(n):
 				excess_waveform = len(temp[ifos.index(ifo)]) - duration*sample_rate//2 - merger_offset
 				if excess_waveform < 0:
 					excess_waveform = 0
-				else:
-					print("trimming excess waveform, ", excess_waveform, "samples")
+				#else:
+				#	print("trimming excess waveform, ", excess_waveform, "samples")
 				#print("start, end: ", duration*sample_rate//2 - w_len + offset + merger_offset, duration*sample_rate//2 + offset + merger_offset)
 				strains[ifo][i,duration*sample_rate//2 - w_len + offset + merger_offset: duration*sample_rate//2 + offset + merger_offset] = temp[ifos.index(ifo)][excess_waveform:]
 				delta_t_h1 = all_detectors[ifo].time_delay_from_detector(other_detector=all_detectors[ifos[0]],

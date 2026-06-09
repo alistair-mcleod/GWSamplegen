@@ -425,6 +425,11 @@ def get_projected_waveform_mp(args):
 		#f_lower_temp = 4
 		f_lower_temp = min(args['f_lower']*0.75, maximum_f_lower(args['mass1'], args['mass2']))
 		delta_t_temp = args["delta_t"]/2
+	elif temp_approximant == "IMRPhenomXPHM":
+		f_lower_temp = 15
+		if args['mass1'] + args['mass2'] < 4:
+			f_lower_temp = 25
+		delta_t_temp = args["delta_t"] 
 	elif temp_approximant in ["EccentricTD", "EccentricFD", "TaylorF2Ecc"]:
 		#TODO: Add some method for specifying the reference frequency of the eccentric waveform...
 		f_lower_temp = min(20, maximum_f_lower(args['mass1'], args['mass2']))

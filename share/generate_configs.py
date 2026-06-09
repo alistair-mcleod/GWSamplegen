@@ -50,12 +50,20 @@ def get_snr(args):
     temp_f_lower = min(f_lower, maximum_f_lower(args['mass1'], args['mass2']))
     if temp_td in ["TaylorF2Ecc", "EccentricFD", "EccentricTD"]:
         temp_f_lower = 20
+    if temp_td == "IMRPhenomXPHM":
+        #for whatever reason, IMRPhenomXPHM has the OPPOSITE problem to most waveforms:
+        #if f_lower is too LOW, it fails to generate a waveform
+        if args['mass1'] + args['mass2'] < 4:
+            temp_f_lower = 25
+            temp_delta_t = 1/2048
+        else:
+            temp_f_lower = 15
 
     if temp_td in td_approximants():
         
         try:
             hp, hc = get_td_waveform(
-                mass1 = args['mass1'], mass2 = args['mass2'],
+                mass1 = args['mass1'].value, mass2 = args['mass2'].value,
                 spin1x = args['spin1x'], spin2x = args['spin2x'],
                 spin1y = args['spin1y'], spin2y = args['spin2y'], 
                 spin1z = args['spin1z'], spin2z = args['spin2z'],
@@ -72,8 +80,8 @@ def get_snr(args):
                     inclination = args['i'], distance = args['d'],
                     approximant = temp_td, f_lower = temp_f_lower, delta_t = delta_t / 8, f_final = 8/delta_t
                 )
-            except:
-                print("Failed to generate waveform. Parameters:", args, flush = True)
+            except Exception as e:
+                print("Failed to generate waveform. Parameters:", args, "error was", e, "temp_td:", temp_td, "temp_f_lower:", temp_f_lower, flush = True)
                 print("trying again with no spins.")
                 hp, hc = get_td_waveform(
                     mass1 = args['mass1'], mass2 = args['mass2'], 
@@ -693,6 +701,11 @@ if config_file:
             print("using glitch SNR threshold of ", glitch_SNR_threshold)
         else:
             glitch_SNR_threshold = 7 #default from earlier runs
+        if "dchirp_scaling" in config:
+            dchirp_scaling = config['dchirp_scaling']
+            print("using dchirp scaling of ", dchirp_scaling)
+        else:
+            dchirp_scaling = False
 
         if not os.path.exists(project_dir):
             os.makedirs(project_dir, exist_ok=True)
@@ -861,7 +874,7 @@ if chirp_mass_prior is not None:
         mass2_min = max(mass2_min, template_mass2_min)
         mass2_max = min(mass2_max, template_mass2_max)
         
-        print(f"chirp and component mass ranges for this bin: chirp mass {chirp_mass_min:.2f} - {chirp_mass_max:.2f}, m1: {mass1_min:.2f} - {mass1_max:.2f}, m2: {1:.2f} - {mass2_max:.2f}")
+        print(f"chirp and component mass ranges for this bin: chirp mass {chirp_mass_min:.2f} - {chirp_mass_max:.2f}, m1: {mass1_min:.2f} - {mass1_max:.2f}, m2: {mass2_min:.2f} - {mass2_max:.2f}")
 
         #pdict = PriorDict(conversion_function = sample_masses_from_cm_q)
         #TODO: generalise this stuff
@@ -1029,6 +1042,9 @@ if bank_type == "spiir":
         pool.join()
     print("Successfully finished generation of template waveforms")
 
+def chirp_distance_to_distance(mass1, mass2, d_chirp):
+	cm = chirp_mass(mass1, mass2)
+	return d_chirp * (cm/1.219)**(5/6)
 
 previous_good_params_length = 0
 while generated_samples < n_signal_samples:
@@ -1049,7 +1065,8 @@ while generated_samples < n_signal_samples:
                 m2.append(pair[1])
             p['mass1_source'] = m1
             p['mass2_source'] = m2
-
+    if dchirp_scaling:
+        p['d'] = chirp_distance_to_distance(p['mass1_source'], p['mass2_source'], p['d'])
     cosmol = FlatwCDM(H0=67.9, Om0=0.3065, w0=-1)
     m1_df = []
     m2_df = []
