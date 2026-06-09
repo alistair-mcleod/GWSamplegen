@@ -725,10 +725,6 @@ def get_valid_noise_times_from_segments(
 	ifo_1 = "{}_{}.txt".format(ifos[0], run)
 	if len(ifos) > 1:
 		ifo_2 = "{}_{}.txt".format(ifos[1], run)
-	elif ifos[0] == "H1":
-		ifo_2 = "{}_{}.txt".format("L1", run)
-	elif ifos[0] == "L1":
-		ifo_2 = "{}_{}.txt".format("H1", run)
 	ifo_1 = impresources.files(segments).joinpath(ifo_1)
 	ifo_2 = impresources.files(segments).joinpath(ifo_2)
 	if len(ifos) == 1:
@@ -736,7 +732,7 @@ def get_valid_noise_times_from_segments(
 		ifo_3 = impresources.files(segments).joinpath("V1_{}.txt".format(run))
 
 	for start_time, end_time in segment_tuples:
-		if ifos == ["H1", "L1"]:
+		if len(ifos) == 2:
 			segs, _, _ = combine_seg_list(ifo_1,ifo_2,start_time,end_time, min_duration=noise_len)
 		elif len(ifos) ==1:
 			segs, _, _ = exclusive_seg_list(ifo_1, ifo_2, start_time, end_time, noise_len, ifo_3)
