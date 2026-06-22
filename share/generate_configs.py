@@ -535,6 +535,9 @@ if config_file:
         config = json.load(json_file)
 
         seed = config['seed']
+        if job_id is not None:
+            print("overwriting seed with seed + job_id for distributed generation")
+            seed += job_id
         n_signal_samples = config['n_signal_samples']
         n_noise_samples = config['n_noise_samples']
         glitch_frac = config['glitch_frac']
@@ -838,7 +841,7 @@ global psds
 
 #set a seed to ensure reproducibility
 np.random.seed(seed)
-
+print("seed: ", seed)
 
 
 if chirp_mass_prior is not None:
@@ -1080,6 +1083,10 @@ while generated_samples < n_signal_samples:
         if p['mass2_source'][key] * (1 + z[key]) > 250:
             #print("Reducing mass2 from ", p['mass2_source'][key] * (1 + z[key]), " to 250 solar masses in detector frame")
             p['mass2_source'][key] = 250 / (1 + z[key])
+        #reduce redshift if mass1 is still high
+        if p['mass1_source'][key] * (1 + z[key]) > 120:
+            #halve z to reduce detector frame mass further to avoid having a long tail of high mass samples
+            z[key] = z[key]/2
         m1_df.append(p['mass1_source'][key] * (1 + z[key]))
         m2_df.append(p['mass2_source'][key] * (1 + z[key]))
     p['z'] = z
@@ -1226,9 +1233,13 @@ while generated_samples < n_signal_samples:
             #scale the distance of the sample, as this is how we change the SNR
             params[i]['d'] = params[i]['d'] / network_SNR_scale
             #however, if the distance is now outisde of our prior range, we discard this sample
-            if params[i]['d'] < d_min or params[i]['d'] > d_max:
-                #we do this by setting its network SNR to 0, so it is not saved
-                params[i]['network_snr'] = 0
+            #if params[i]['d'] < d_min or params[i]['d'] > d_max:
+            #    #we do this by setting its network SNR to 0, so it is not saved
+            #    params[i]['network_snr'] = 0
+            if params[i]['d'] < 1 or params[i]['d'] > 50000:
+                #putting some guardrails on distance. This is a bandaid while figuring out 
+                #why some samples are being scaled to have distances of > 1e30 Mpc...
+                network_snr = 0
 
             #if np.min([snrs[i][detector] for detector in snrs[i]]) < detector_snr_threshold * network_SNR_scale:
             #    #if after scaling the network SNR one or both of the detector SNRs are below the threshold,
@@ -1348,24 +1359,24 @@ while generated_samples < n_signal_samples:
 
 print('done samples with injections')
 
-if not d_eff_scaling and np.max([i['network_snr'] for i in good_params]) < 500:
-    #rescale the distance to ensure at least one sample has a network SNR of 500
-    # this is to ensure that the distance prior is well sampled.
-    # TODO: will need a flag for this in the future, as it's not always necessary.
+# if not d_eff_scaling and np.max([i['network_snr'] for i in good_params]) < 500:
+#     #rescale the distance to ensure at least one sample has a network SNR of 500
+#     # this is to ensure that the distance prior is well sampled.
+#     # TODO: will need a flag for this in the future, as it's not always necessary.
 
-    print("Rescaling a sample to ensure at least one sample has a network SNR of 500")
-    max_snr_idx = np.argmax([i['network_snr'] for i in good_params])
-    max_snr = good_params[max_snr_idx]['network_snr']
-    max_snr_distance = good_params[max_snr_idx]['d']
+#     print("Rescaling a sample to ensure at least one sample has a network SNR of 500")
+#     max_snr_idx = np.argmax([i['network_snr'] for i in good_params])
+#     max_snr = good_params[max_snr_idx]['network_snr']
+#     max_snr_distance = good_params[max_snr_idx]['d']
     
-    rescale = 500/max_snr
+#     rescale = 500/max_snr
 
-    rescale *= np.random.uniform(1, 1.2)# + np.random.uniform(0, 0.2)
+#     rescale *= np.random.uniform(1, 1.2)# + np.random.uniform(0, 0.2)
 
-    good_params[max_snr_idx]['d'] = good_params[max_snr_idx]['d']/rescale
-    good_params[max_snr_idx]['H1_snr'] = good_params[max_snr_idx]['H1_snr']*rescale
-    good_params[max_snr_idx]['L1_snr'] = good_params[max_snr_idx]['L1_snr']*rescale
-    good_params[max_snr_idx]['network_snr'] = good_params[max_snr_idx]['network_snr']*rescale
+#     good_params[max_snr_idx]['d'] = good_params[max_snr_idx]['d']/rescale
+#     good_params[max_snr_idx]['H1_snr'] = good_params[max_snr_idx]['H1_snr']*rescale
+#     good_params[max_snr_idx]['L1_snr'] = good_params[max_snr_idx]['L1_snr']*rescale
+#     good_params[max_snr_idx]['network_snr'] = good_params[max_snr_idx]['network_snr']*rescale
 
 #save the injection parameters to a file
 #convert from a list of dictionaries to a dictionary of lists
