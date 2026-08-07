@@ -20,6 +20,19 @@ config_file = os.path.join(project_dir, "args.json")
 
 with open(config_file) as f:
 	config = json.load(f)
+	#check if the "save_complex key" exists
+	if "save_complex" in config:
+		save_complex = config['save_complex']
+	else:
+		save_complex = False
+	if "save_spectrograms" in config:
+		save_spectrograms = config['save_spectrograms']
+	else:
+		save_spectrograms = False
+	if "save_strain" in config:
+		save_strain = config['save_strain']
+	else:
+		save_strain = False
 
 	#project_dir = config['project_dir']
 	#n_signal_samples = config['n_signal_samples']
@@ -27,7 +40,23 @@ with open(config_file) as f:
 if file_type == "params":
 	filename = ["params"]
 elif file_type == "data":
-	filename = ["SNR", "SNR_abs", "strain", "spectrogram", "spectrogram_re", "spectrogram_im", "spectrogram_q", "spectrogram_vitmap", "spectrogram_lineaware"]
+	filename = []
+	if save_complex:
+		filename.append("SNR")
+	else:
+		filename.append("SNR_abs")
+	if save_spectrograms:
+		filename.append("spectrogram")
+		filename.append("spectrogram_re")
+		filename.append("spectrogram_im")
+		filename.append("spectrogram_q")
+		filename.append("spectrogram_vitmap")
+		filename.append("spectrogram_lineaware")
+	if save_strain:
+		filename.append("strain")
+		
+	print("Files to combine:", filename)
+	#filename = ["SNR", "SNR_abs", "strain", "spectrogram", "spectrogram_re", "spectrogram_im", "spectrogram_q", "spectrogram_vitmap", "spectrogram_lineaware"]
 else:
 	raise ValueError("filetype must be 'params' or 'data'")
 
