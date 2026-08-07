@@ -29,8 +29,8 @@ from bilby.gw.prior import UniformComovingVolume, UniformSourceFrame
 
 from GWSamplegen.waveform_utils import load_pycbc_templates, choose_templates_new, chirp_mass, maximum_f_lower, select_approximant, t_at_f, f_at_t, fast_point_distance
 from GWSamplegen.glitch_utils import get_glitchy_times, get_glitchy_gps_time
-from GWSamplegen.noise_utils import two_det_timeslide, get_valid_noise_times, load_psd
-from GWSamplegen.prior_utils import constructPrior, TriUniform, PowUniform, draw_mass_pair_power, draw_spin_isotropic, sample_masses_from_cm_q
+from GWSamplegen.noise_utils import two_det_timeslide, get_valid_noise_times, load_psd, load_psds_from_txt
+from GWSamplegen.prior_utils import constructPrior, TriUniform, PowUniform, GaussianMixture, draw_mass_pair_power, draw_spin_isotropic, sample_masses_from_cm_q
 from GWSamplegen.template_utils import find_templates
 #from asyncSNR_np import get_projected_waveform_mp
 from GWSamplegen.waveform_utils import get_projected_waveform_mp
@@ -316,7 +316,13 @@ def get_overlaps(args):
     temp_td_approximant = select_approximant(args['mass1'], args['mass2'], td_approximant, domain='time')
 
     temp_f_lower = max(10, f_at_t(args['mass1'], args['mass2'], duration//2))
-
+    if temp_td_approximant == "IMRPhenomXPHM":
+        #for whatever reason, IMRPhenomXPHM has the OPPOSITE problem to most waveforms:
+        #if f_lower is too LOW, it fails to generate a waveform
+        if args['mass1'] + args['mass2'] < 4:
+            temp_f_lower = 25
+        else:
+            temp_f_lower = 15
     if temp_td_approximant in td_approximants():
         try:
             hp,_ = get_td_waveform(approximant=temp_td_approximant, mass1=args['mass1'], mass2=args['mass2'],
@@ -567,8 +573,26 @@ if config_file:
         # powerlaw_alpha = config['powerlaw_alpha']
         mass1prior = eval(config['mass1prior'])
         mass2prior = eval(config['mass2prior'])
-        mass1_power = config['mass1_power']
-        mass2_power = config['mass2_power']
+        if mass1prior == PowerLaw:
+            if 'mass1_power' in config:
+                mass1_power = config['mass1_power']
+            else:
+                raise ValueError("mass1_power must be specified for PowerLaw prior")
+        if mass2prior == PowerLaw:
+            if 'mass2_power' in config:
+                mass2_power = config['mass2_power']
+            else:
+                raise ValueError("mass2_power must be specified for PowerLaw prior")
+        if mass1prior == GaussianMixture:
+            if 'mass1_mixture' in config:
+                mass1_mixture = config['mass1_mixture']
+            else:
+                raise ValueError("mass1_mixture must be specified for GaussianMixture prior")
+        if mass2prior == GaussianMixture:
+            if 'mass2_mixture' in config:
+                mass2_mixture = config['mass2_mixture']
+            else:
+                raise ValueError("mass2_mixture must be specified for GaussianMixture prior")
         mass1_min = config['mass1_min']
         mass1_max = config['mass1_max']
         mass2_min = config['mass2_min']
@@ -787,6 +811,19 @@ def load_pycbc_templates_from_hdf(hdf_file):
 if bank_type == "pycbc":
     print("Note: this bank matching method only works with BNS templates.")
     template_bank_params, metricParams, aXis = load_pycbc_templates(template_bank, template_dir=template_dir)
+    if template_mass1_min is not None: #TODO: avoid code duplication here
+        cut = ((template_bank_params[:,1] > template_mass1_min) & (template_bank_params[:,1] < template_mass1_max) &
+                (template_bank_params[:,2] > template_mass2_min) & (template_bank_params[:,2] < template_mass2_max))
+    elif template_chirp_mass_min is not None:
+        cut = ((template_bank_params[:,0] > template_chirp_mass_min) & (template_bank_params[:,0] <= template_chirp_mass_max))
+        if template_q_min is not None:
+            q = template_bank_params[:,2] / template_bank_params[:,1]
+            cut = cut & (q > template_q_min) & (q <= template_q_max)
+    else:
+        cut = np.ones(len(template_bank_params), dtype=bool)
+    aXis = aXis[:,cut]
+    template_bank_params = template_bank_params[cut]
+    print("Number of templates after cut: ", len(template_bank_params))
     np.save(project_dir+"/template_params.npy",template_bank_params)
     print("Number of templates: ", len(template_bank_params))	
 elif bank_type == "spiir":
@@ -944,6 +981,15 @@ if SNR_prior is not None:
     prior['network_snr'] = constructPrior(SNR_prior, SNR_min, SNR_max, alpha = SNR_power)
 
 from GWSamplegen.noise_utils import get_valid_noise_times_from_segments, psd_from_segments
+if noise_type == "Gaussian":
+    if noise_segments is not None:
+        print("Using noise segments to generate GPS times")
+        valid_times = []
+        for segment in noise_segments:
+            valid_times.extend(np.arange(segment[0], segment[1]-duration, 1))
+    else:
+        print("Using random GPS times in the following range: 0 - 86400 seconds")
+        valid_times = np.arange(0, 86400, 1)
 if noise_segments is None:
     valid_times, _, _ = get_valid_noise_times(noise_dir,duration)
 else:
@@ -954,8 +1000,18 @@ print(len(valid_times), "GPS times available")
 
 #load PSD 
 
-if noise_segments is None:
-    psds = load_psd(noise_dir, duration, detectors, f_lower, int(1/delta_t))
+if noise_type == "Gaussian" or noise_segments is None:
+    #check if noise_dir is a valid directory
+    try:
+        if os.path.isdir(noise_dir):
+            psds = load_psd(noise_dir, duration, detectors, f_lower, int(1/delta_t))
+
+        else:
+            raise ValueError("noise_dir is not a valid directory. If you are attempting to pass a text file, it should be in a list")
+    except:
+        print("Reading PSDs from multiple text files")
+        psds = load_psds_from_txt(noise_dir, duration, detectors, f_lower, int(1/delta_t))
+
 else:
     psds = {}
     for ifo in detectors:

@@ -19,7 +19,7 @@ import numpy as np
 from typing import List, Tuple, Generator
 from pycbc.types.timeseries import TimeSeries
 from pycbc.types import FrequencySeries
-from pycbc.psd import interpolate, inverse_spectrum_truncation
+from pycbc.psd import interpolate, inverse_spectrum_truncation, from_numpy_arrays
 import json
 from GWSamplegen.waveform_utils import t_at_f
 from pathlib import Path
@@ -679,6 +679,49 @@ def load_psd(
 		
 	return psds
 
+def load_psds_from_txt(
+		psd_files: List[str],
+		duration: int,
+		ifos: List[str],
+		f_lower: int,
+		sample_rate: int
+):
+	"""
+	Load a PSD from a text file. The text file can have a header or not.
+	The function will automatically detect if there's a header and skip it.
+	The function will return the frequency and PSD arrays.
+	"""
+	psds = {}
+	# Try to load the PSD without skipping any rows
+
+	for ifo in ifos:
+		if len(psd_files) != len(ifos) and len(psd_files) != 1:
+			raise ValueError(f"Number of PSD files ({len(psd_files)}) does not match number of ifos ({len(ifos)}).")
+			
+		if len(psd_files) == 1:
+			psd_file = psd_files[0]
+		else:
+			psd_file = psd_files[ifos.index(ifo)]
+			
+		try:
+			psd = np.loadtxt(psd_file, usecols=(0, 1))
+			# Check if the first row is a header by trying to convert it to float
+			float(psd[0, 0])
+			float(psd[0, 1])
+		except ValueError:
+			# If there's a ValueError, it means there's a header, so we skip the first row
+			psd = np.loadtxt(psd_file, usecols=(0, 1), skiprows=1)
+		psd = from_numpy_arrays(psd[:,0], psd[:,1], int(sample_rate * duration /2 + 1),  delta_f=1/duration, low_freq_cutoff=f_lower )
+		#psd = inverse_spectrum_truncation(psd, int(sample_rate * duration), low_frequency_cutoff=f_lower)
+		psds[ifo] = psd
+		#try to intelligently detect if the file is an ASD file. Do this by testing the value near a frequency of 100 Hz. 
+		#If the value is greater than 1e-30, it's probably an ASD and needs to be squared.
+		if np.interp(100, psd.sample_frequencies, psd) > 1e-30:
+			psds[ifo].data = psd.data**2
+			print(f"Detected that {psd_file} is an ASD file. Converting to a PSD.")
+		psds[ifo] = interpolate(psds[ifo], delta_f=1/duration)
+		psds[ifo] = inverse_spectrum_truncation(psds[ifo], int(4*sample_rate), low_frequency_cutoff=f_lower)
+	return psds
 
 def get_valid_noise_times_from_segments(
 		segment_tuples: List[Tuple[int,int]],

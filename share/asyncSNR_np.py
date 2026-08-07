@@ -7,7 +7,7 @@ import argparse
 import json
 import numpy as np
 from GWSamplegen.snr_utils_np import numpy_matched_filter, np_get_cutoff_indices
-from GWSamplegen.noise_utils import get_valid_noise_times, load_noise, fetch_noise_loaded, load_psd, get_data_from_OzStar, psd_preceding
+from GWSamplegen.noise_utils import get_valid_noise_times, load_noise, fetch_noise_loaded, load_psd, get_data_from_OzStar, psd_preceding, load_psds_from_txt
 from GWSamplegen.chisq_utils_np import reduced_chisquared_precomputed_SNR
 from GWSamplegen.waveform_utils import maximum_f_lower, select_approximant
 
@@ -50,16 +50,16 @@ def run_batch(n):
 	for ifo in ifos:
 		strains[ifo] = np.zeros((samples_per_batch, duration*sample_rate))
 		#reset the PSDs
-		if noise_segments is not None:
+		if noise_segments is not None and noise_type != "Gaussian":
 			psds[ifo] = []
-
+	print(psds[ifos[0]])
 	for i in range(samples_per_batch):
 		#print("sample:", n+i, "template", t_ids[i])
 		if noise_type == "Gaussian":
 			noise = np.zeros((len(ifos), duration*sample_rate))
 			for j in range(len(ifos)):
-				noise[j] = pycbc.noise.gaussian.noise_from_psd(duration*int(1/delta_t),delta_t,psds[ifos[j]],
-							seed=seed+n+i*len(ifos)+j)
+				noise[j] = pycbc.noise.gaussian.noise_from_psd(duration*int(1/delta_t),delta_t,psds_full[ifos[j]])
+				#seed=seed+n+i*len(ifos)+j
 		else:
 			if noise_segments is None:
 				noise = fetch_noise_loaded(segments,duration,gps[n+i],sample_rate,paths)
@@ -81,7 +81,7 @@ def run_batch(n):
 					'inclination': params['i'][n+i], 'distance': params['d'][n+i],
 					'ra': params['ra'][n+i], 'dec': params['dec'][n+i],
 					'pol': params['pol'][n+i], 'gps': params['gps'][n+i][0], "f_lower": f_lower, 
-					"f_final": f_final, "delta_t": delta_t, "delta_f": delta_f, "td_approximant": td_approximant}
+					"f_final": f_final, "delta_t": delta_t, "delta_f": delta_f, "td_approximant": td_approximant, "ifos": ifos}
 
 			temp, merger_offset = get_projected_waveform_mp(args)
 			#merger_offset = int(merger_offset*sample_rate)
@@ -116,7 +116,7 @@ def run_batch(n):
 	ret = {}
 
 	for ifo in ifos:
-		if noise_segments is not None:
+		if noise_segments is not None or noise_type == "Gaussian":
 			psds[ifo] = np.repeat(np.array(psds[ifo]), n_templates, axis=0)
 
 		strain = [TimeSeries(strains[ifo][i], delta_t=delta_t) for i in range(samples_per_batch)]
@@ -259,7 +259,7 @@ if __name__ == "__main__":
 	delta_f = 1/duration
 	f_final = duration
 
-	ifos = ['H1', 'L1']
+	#ifos = ['H1', 'L1']
 
 	offset = 0
 
@@ -284,7 +284,11 @@ if __name__ == "__main__":
 
 	#n_cpus = 10
 	#set n_cpus from os
-	n_cpus = int(os.environ['SLURM_CPUS_PER_TASK'])
+	try:
+		n_cpus = int(os.environ['SLURM_CPUS_PER_TASK'])
+	except:
+		print("Failed to get SLURM_CPUS_PER_TASK from environment, defaulting to 4")
+		n_cpus = 4
 	print("n_cpus:",n_cpus)
 	mp_batch = n_cpus
 
@@ -329,10 +333,26 @@ if __name__ == "__main__":
 	psds = {}
 	t_psds = {}
 
-	if noise_segments is None:
-		psds = load_psd(noise_dir, duration, ifos, f_lower, int(1/delta_t))
-		for psd in psds:
-			psds[psd] = psds[psd][kmin:kmax]
+	if noise_type == "Gaussian" or noise_segments is None:
+		psds_full = {}
+		#check if noise_dir is a valid directory
+		try:
+			if os.path.isdir(noise_dir):
+				psds = load_psd(noise_dir, duration, ifos, f_lower, int(1/delta_t))
+				#make a copy of the psds for later use
+				psds_full = psds.copy()
+				for psd in psds:
+					psds[psd] = psds[psd][kmin:kmax]
+			else:
+				raise ValueError("noise_dir is not a valid directory. If you are attempting to pass a text file, it should be in a list")
+		except:
+			print("Reading PSDs from multiple text files")
+			psds = load_psds_from_txt(noise_dir, duration, ifos, f_lower, int(1/delta_t))
+			#make a copy of the psds for later use
+			psds_full = psds.copy()
+			for psd in psds:
+				psds[psd] = psds[psd][kmin:kmax]
+
 	else:
 		print("computing PSDs from noise segments")
 		for ifo in ifos:
