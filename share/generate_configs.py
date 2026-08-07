@@ -27,7 +27,7 @@ from bilby.core.prior import (
 )
 from bilby.gw.prior import UniformComovingVolume, UniformSourceFrame
 
-from GWSamplegen.waveform_utils import load_pycbc_templates, choose_templates_new, chirp_mass, maximum_f_lower, select_approximant, t_at_f, f_at_t, fast_point_distance
+from GWSamplegen.waveform_utils import load_pycbc_templates, choose_templates_new, chirp_mass, maximum_f_lower, select_approximant, t_at_f, f_at_t, fast_point_distance, load_pycbc_templates_from_hdf
 from GWSamplegen.glitch_utils import get_glitchy_times, get_glitchy_gps_time
 from GWSamplegen.noise_utils import two_det_timeslide, get_valid_noise_times, load_psd, load_psds_from_txt
 from GWSamplegen.prior_utils import constructPrior, TriUniform, PowUniform, GaussianMixture, draw_mass_pair_power, draw_spin_isotropic, sample_masses_from_cm_q
@@ -785,22 +785,6 @@ if noise_dir is not None and noise_type != "Gaussian":
 
 import h5py
 from pycbc.tmpltbank.coord_utils import get_cov_params
-def load_pycbc_templates_from_hdf(hdf_file):
-    f = h5py.File(hdf_file, 'r')
-    templates = np.zeros((len(f['mass1']),6))
-    templates[:,1] = f['mass1'][()]
-    templates[:,2] = f['mass2'][()]
-    templates[:,3] = f['spin1z'][()]
-    templates[:,4] = f['spin2z'][()]
-    templates[:,5] = f['f_lower'][()]
-    templates[:,0] = chirp_mass(templates[:,1], templates[:,2])
-
-    #sort by chirp mass
-    templates = templates[templates[:,0].argsort()]
-    print("Number of templates: ", len(templates))
-    #for i in range(len(f['mass1'])):
-    #	templates.append(f_at_t(f['mass1'][i], f['mass2'][i], f['f_low'][i], f['f_high'][i], f['duration'][i], f['delta_t'][i]))
-    return templates
 
 
 
@@ -958,9 +942,6 @@ else:
     elif mass2prior == GaussianMixture:
         prior['mass2_source'] = constructPrior(mass2prior, mass2_min, mass2_max, components = mass2_mixture)
     else:
-        #Primarily used for NSBH
-        print("mass1 is a power law, mass2 is not")
-        prior['mass1_source'] = constructPrior(mass1prior, mass1_min, mass1_max, alpha = mass1_power)
         prior['mass2_source'] = constructPrior(mass2prior, mass2_min, mass2_max)
 
 prior['spin1z'] = constructPrior(spin1zprior, spin1z_min, spin1z_max)

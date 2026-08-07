@@ -1,8 +1,9 @@
-from GWSamplegen.waveform_utils import maximum_f_lower, t_at_f, select_approximant, fast_point_distance
+from GWSamplegen.waveform_utils import maximum_f_lower, t_at_f, select_approximant, fast_point_distance, chirp_mass
 from pycbc.waveform import get_td_waveform, get_fd_waveform, td_approximants, fd_approximants
 import numpy as np
 from pycbc.filter import matchedfilter
 import gc
+import h5py
 
 def cfac(e):
     #a correction factor: when searching for circular templates for an eccentric waveform,
@@ -109,3 +110,19 @@ def find_templates(waveform, args, futile_limit = 10, match_target = 0.9, requir
     #run garbage collection
     gc.collect()
     return olaps[np.argsort(olaps)[::-1][:required_templates]], idx[np.argsort(olaps)[::-1][:required_templates]] 
+
+
+def load_pycbc_templates_from_hdf(hdf_file):
+    #load templates from a pycbc hdf file produced by brute_bank, uberbank etc.
+
+    f = h5py.File(hdf_file, 'r')
+    templates = np.zeros((len(f['mass1']),6))
+    templates[:,1] = f['mass1'][()]
+    templates[:,2] = f['mass2'][()]
+    templates[:,3] = f['spin1z'][()]
+    templates[:,4] = f['spin2z'][()]
+    templates[:,5] = f['f_lower'][()]
+    templates[:,0] = chirp_mass(templates[:,1], templates[:,2])
+    
+    templates = templates[templates[:,0].argsort()]
+    return templates
