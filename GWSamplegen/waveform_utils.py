@@ -413,7 +413,10 @@ def get_projected_waveform_mp(args):
 		the end time of the waveform relative to the end of the array, in samples.
 	"""
 	
-	ifos = ['H1', 'L1']
+	if "ifos" in args.keys():
+		ifos = args['ifos']
+	else:
+		ifos = ['H1', 'L1']
 	all_detectors = {'H1': Detector('H1'), 'L1': Detector('L1'), 'V1': Detector('V1'), 'K1': Detector('K1')}
 	temp_approximant = select_approximant(args['mass1'], args['mass2'], args['td_approximant'], domain = 'time')
 
