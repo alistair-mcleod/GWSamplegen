@@ -27,11 +27,11 @@ from bilby.core.prior import (
 )
 from bilby.gw.prior import UniformComovingVolume, UniformSourceFrame
 
-from GWSamplegen.waveform_utils import load_pycbc_templates, choose_templates_new, chirp_mass, maximum_f_lower, select_approximant, t_at_f, f_at_t, fast_point_distance, load_pycbc_templates_from_hdf
+from GWSamplegen.waveform_utils import load_pycbc_templates, choose_templates_new, chirp_mass, maximum_f_lower, select_approximant, t_at_f, f_at_t, fast_point_distance
 from GWSamplegen.glitch_utils import get_glitchy_times, get_glitchy_gps_time
 from GWSamplegen.noise_utils import two_det_timeslide, get_valid_noise_times, load_psd, load_psds_from_txt
 from GWSamplegen.prior_utils import constructPrior, TriUniform, PowUniform, GaussianMixture, draw_mass_pair_power, draw_spin_isotropic, sample_masses_from_cm_q
-from GWSamplegen.template_utils import find_templates
+from GWSamplegen.template_utils import find_templates, load_pycbc_templates_from_hdf
 #from asyncSNR_np import get_projected_waveform_mp
 from GWSamplegen.waveform_utils import get_projected_waveform_mp
 from pycbc.tmpltbank.coord_utils import get_cov_params
