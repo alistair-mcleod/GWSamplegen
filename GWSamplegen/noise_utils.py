@@ -783,7 +783,7 @@ def psd_from_segments(segments, duration, detector, delta_t, f_lower, max_segmen
 	return FrequencySeries(psd, delta_f = psds[0].delta_f, epoch = psds[0].epoch)
 
 
-def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/datasets/LIGO/public/"):
+def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/datasets/LIGO/public/", return_bad_data=False):
 	"""OzStar-specific function for fetching GW data."""
 	if gps_start != int(gps_start):
 		print("NOTE: you have specified a non-integer GPS time to fetch. Make sure this is what you want!")
@@ -874,6 +874,9 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/dat
 			print("Ifo:", ifo)
 
 		dat = dat.to_pycbc()
+		#replace NANs with zeros if return_bad_data is True
+		if return_bad_data:
+			dat.data[np.isnan(dat.data)] = 0
 		dat = dat.resample(1/2048)
 
 	else:
@@ -883,6 +886,10 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/dat
 				format="hdf5.gwosc", end = gps_start+duration)	
 		dat_start = dat_start.to_pycbc()
 		dat_end = dat_end.to_pycbc()
+		#replace NANs with zeros if return_bad_data is True
+		if return_bad_data:
+			dat_start.data[np.isnan(dat_start.data)] = 0
+			dat_end.data[np.isnan(dat_end.data)] = 0
 		#resample
 		dat_start = dat_start.resample(1/2048)
 		dat_end = dat_end.resample(1/2048)
@@ -894,12 +901,15 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/dat
 	if np.any(np.isnan(dat.data)):
 		print("WARNING: Found NaNs in the data!")
 		print("GPS time:", gps_start)
-		print("Ifo:", ifo)	
-		print("Returning None for now.")
-		return None
+		print("Ifo:", ifo)
+		if return_bad_data:
+			print("Returning data with NaNs replaced with zeros.")
+			dat.data[np.isnan(dat.data)] = 0
+		else:
+			print("Returning None for now.")
+			return None
 
 	return dat
-
 
 def get_data_from_local(gps_start, duration, ifo, gwf_files, verbose = False):
 	"""Check local .gwf files for data covering the requested gps time. Designed
