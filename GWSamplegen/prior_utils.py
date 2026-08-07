@@ -8,7 +8,8 @@ from bilby.core.prior import (
     Uniform,
     Triangular,
 )
-from typing import Union
+from bilby.core.prior.analytical import TruncatedGaussian
+from typing import Union, List, Tuple
 from bilby.gw.prior import UniformComovingVolume, UniformSourceFrame
 
 def constructPrior(
@@ -131,11 +132,53 @@ class PowUniform(bilby.core.prior.Prior):
 		return f'PowUniform(minimum={self.minimum}, maximum={self.maximum}, alpha={self.alpha}, r={self.r})'
 
 
-#construct a prior dictionary and set the priors for each parameter TODO: move to utils
+def gaussian_mixture(
+	minimum: float,
+	maximum: float,
+	components: List[Tuple[float, float, float]],
+):
+	"""
+	Sample from a mixture of truncated Gaussians.
+	components: List of tuples (weight, mean, std). Number of components is len(components).
+	minimum: lower bound
+	maximum: upper bound
+	"""
+
+	weights, means, sigmas = zip(*components)
+	component = np.random.choice(len(components), p = np.asarray(weights) / np.sum(weights))
+
+	val = TruncatedGaussian(mu=means[component], sigma=sigmas[component], minimum=minimum, maximum=maximum).sample()
+	return val
+
+class GaussianMixture(bilby.core.prior.Prior):
+	"""
+	A mixture of truncated Gaussians.
+	components: List of tuples (weight, mean, std). Number of components is len(components).
+	minimum: lower bound
+	maximum: upper bound
+	"""
+	def __init__(self, components: List[Tuple[float, float, float]], minimum: float, maximum: float):
+		self.components = components
+		self.minimum = minimum
+		self.maximum = maximum
+		super().__init__(minimum=minimum, maximum=maximum)
+	
+	def rescale(self, val: float) -> float:
+		return gaussian_mixture(self.minimum, self.maximum, self.components)
+	
+	def sample(self, size=None):
+		if size is None:
+			return self.rescale(np.random.uniform(0,1))
+		else:
+			return np.array([self.rescale(np.random.uniform(0,1)) for _ in range(size)])
+		
+	def repr(self):
+		return f"GaussianMixture(components={self.components}, minimum={self.minimum}, maximum={self.maximum})"
+
+#construct a prior dictionary and set the priors for each parameter
 def sample_masses_from_cm_q(parameters):
 	converted = parameters.copy()
 	converted['mass1_source'], converted['mass2_source'] = bilby.gw.conversion.chirp_mass_and_mass_ratio_to_component_masses(parameters['chirp_mass'], parameters['mass_ratio'])
-	#print(converted)
 	return converted
 
 # Function from LVC Rates & Populations Group

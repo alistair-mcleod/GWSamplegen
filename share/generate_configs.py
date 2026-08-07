@@ -825,7 +825,7 @@ if bank_type == "pycbc":
     template_bank_params = template_bank_params[cut]
     print("Number of templates after cut: ", len(template_bank_params))
     np.save(project_dir+"/template_params.npy",template_bank_params)
-    print("Number of templates: ", len(template_bank_params))	
+    #print("Number of templates: ", len(template_bank_params))	
 elif bank_type == "spiir":
     template_bank_params = np.load(template_bank)
     np.save(project_dir+"/template_params.npy", arr=template_bank_params)
@@ -946,11 +946,18 @@ if chirp_mass_prior is not None:
 
 else:
 
-    if mass1prior != PowerLaw:
-        #Primarily used for BNS
+    if mass1prior == PowerLaw:
+        prior['mass1_source'] = constructPrior(mass1prior, mass1_min, mass1_max, alpha = mass1_power)
+    elif mass1prior == GaussianMixture:
+        prior['mass1_source'] = constructPrior(mass1prior, mass1_min, mass1_max, components = mass1_mixture)
+    else:
         prior['mass1_source'] = constructPrior(mass1prior, mass1_min, mass1_max)
-        prior['mass2_source'] = constructPrior(mass2prior, mass2_min, mass2_max)
-    elif mass1prior == PowerLaw and mass2prior != PowerLaw:
+
+    if mass2prior == PowerLaw:
+        prior['mass2_source'] = constructPrior(mass2prior, mass2_min, mass2_max, alpha = mass2_power)
+    elif mass2prior == GaussianMixture:
+        prior['mass2_source'] = constructPrior(mass2prior, mass2_min, mass2_max, components = mass2_mixture)
+    else:
         #Primarily used for NSBH
         print("mass1 is a power law, mass2 is not")
         prior['mass1_source'] = constructPrior(mass1prior, mass1_min, mass1_max, alpha = mass1_power)
