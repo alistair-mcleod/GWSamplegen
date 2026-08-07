@@ -34,7 +34,7 @@ from GWSamplegen.prior_utils import constructPrior, TriUniform, PowUniform, Gaus
 from GWSamplegen.template_utils import find_templates
 #from asyncSNR_np import get_projected_waveform_mp
 from GWSamplegen.waveform_utils import get_projected_waveform_mp
-
+from pycbc.tmpltbank.coord_utils import get_cov_params
 import astropy.units as u
 import astropy.cosmology as cosmo
 from astropy.cosmology import FlatwCDM
@@ -116,61 +116,6 @@ def get_snr(args):
         snrs[detector] = snr
 
     return snrs
-
-
-
-# def get_snr(args):
-#     if td_approximant == "SEOBNRv4PHM" and args['mass1'] + args['mass2'] < 9:
-#         temp_td = "SEOBNRv4P"
-#     elif td_approximant == "SEOBNRv4P" and args['mass1'] + args['mass2'] > 9:
-#         temp_td = "SEOBNRv4PHM"
-#     else:
-#         temp_td = td_approximant
-#     temp_td = waveform_approximant
-#     if temp_td == "TaylorF2":
-#         temp_td = "SpinTaylorT4"
-#     try:
-#         hp, hc = get_td_waveform(
-#             mass1 = args['mass1'], mass2 = args['mass2'], 
-#             spin1z = args['spin1z'], spin2z = args['spin2z'],
-#             inclination = args['i'], distance = args['d'],
-#             approximant = temp_td, f_lower = f_lower, delta_t = delta_t
-#         )
-#     except:
-#         try:
-#             hp, hc = get_td_waveform(
-#                 mass1 = args['mass1'], mass2 = args['mass2'], 
-#                 spin1z = args['spin1z'], spin2z = args['spin2z'],
-#                 inclination = args['i'], distance = args['d'],
-#                 approximant = temp_td, f_lower = 6, delta_t = delta_t
-#             )
-#         except:
-#             hp, hc = get_td_waveform(
-#                 mass1 = args['mass1'], mass2 = args['mass2'], 
-#                 spin1z = args['spin1z'], spin2z = args['spin2z'],
-#                 inclination = args['i'], distance = args['d'],
-#                 approximant = temp_td, f_lower = 10, delta_t = delta_t / 8, f_final = 8/delta_t
-#             )
-#             #downsample to the correct delta_t
-#         hp = hp.resample(delta_t)
-    
-#     snrs = {}
-
-#     for detector in detectors:
-#         f_plus, f_cross = all_detectors[detector].antenna_pattern(
-#             right_ascension=args['ra'], declination=args['dec'],
-#             polarization=args['pol'],
-#             t_gps=args['gps'][0])
-        
-#         detector_signal = f_plus * hp + f_cross * hc
-
-#         snr = sigma(htilde=detector_signal,
-#                     psd=interpolate(psds[detector], delta_f=detector_signal.delta_f),
-#                     low_frequency_cutoff=f_lower)
-        
-#         snrs[detector] = snr
-
-#     return snrs
 
 
 def get_template(task):
@@ -783,13 +728,12 @@ if noise_dir is not None and noise_type != "Gaussian":
             raise ValueError("""Noise delta_t does not match specified delta_t.
                                 Check noise directory and config file.""")
 
-import h5py
-from pycbc.tmpltbank.coord_utils import get_cov_params
+
 
 
 
 #loading a bank of pre-generated templates. TODO: handle multiple ways of selecting templates.
-#For BNS templates, PyCBC's geom_aligned_spin is a good choice as it produces transformation matrices for template selection,
+#For BNS templates, PyCBC's geom_aligned_bank is a good choice as it produces transformation matrices for template selection,
 #but requires the TaylorF2 metric which isn't accurate for BBH. 
 
 if bank_type == "pycbc":
