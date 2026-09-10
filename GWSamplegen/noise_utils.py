@@ -859,11 +859,13 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/dat
 
 	root = os.path.join(root, "gwosc.osgstorage.org", "gwdata")
 	#by looking in reverse order we avoid prematurely selecting the wrong chunk
-	ObsRuns = ["O4a", "O3b", "O3a", "O2", "O1"]
+	ObsRuns = ["O4b", "O4a", "O3b", "O3a", "O2", "O1"]
 	for run in ObsRuns:
 		if verbose:
 			print("Checking run", run)
-		if run == "O4a":
+		if run == "O4b":
+			middle = "O4b_4KHZ_R1/STRAIN_HDF"
+		elif run == "O4a":
 			middle = "O4a_4KHZ_R1/STRAIN_HDF"
 		else:
 			middle = "strain.4k/hdf.v1"
@@ -964,6 +966,7 @@ def get_data_from_local(gps_start, duration, ifo, gwf_files, verbose = False):
 		"O3a": {"frame": "_GWOSC_O3a_4KHZ_R1", "channel": ":GWOSC-4KHZ_R1_STRAIN"},
 		"O3b": {"frame": "_GWOSC_O3b_4KHZ_R1", "channel": ":GWOSC-4KHZ_R1_STRAIN"},
 		"O4a": {"frame": "_GWOSC_O4a_4KHZ_R1", "channel": ":GWOSC-4KHZ_R1_STRAIN"},
+		"O4b": {"frame": "_GWOSC_O4b_4KHZ_R1", "channel": ":GWOSC-4KHZ_R1_STRAIN"}
 	}
 
 	if gps_start >= 1126051217 and gps_start < 1137254417:
@@ -976,6 +979,8 @@ def get_data_from_local(gps_start, duration, ifo, gwf_files, verbose = False):
 		run = "O3b"
 	elif gps_start >= 1368195220 and gps_start < 1389456018:
 		run = "O4a"
+	elif gps_start >= 1396417050 and gps_start < 1422118818:
+		run = "O4b"
 
 	if verbose:
 		print("Checking local .gwf files for data...")
@@ -996,5 +1001,7 @@ def gps_to_run(gps_time):
 		return "O3b"
 	elif gps_time >= 1368195220 and gps_time < 1389456018:
 		return "O4a"
+	elif gps_time >= 1396417050 and gps_time < 1422118818:
+		return "O4b"
 	else:
 		return None
