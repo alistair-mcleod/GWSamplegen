@@ -935,14 +935,10 @@ def get_data_from_OzStar(gps_start, duration, ifo, verbose = False, root = "/dat
 		if return_bad_data:
 			dat_start.data[np.isnan(dat_start.data)] = 0
 			dat_end.data[np.isnan(dat_end.data)] = 0
-		#resample
-		dat_start = dat_start.resample(1/2048)
-		dat_end = dat_end.resample(1/2048)
-		#pad the end of the first segment 
+		# Join at the original sample rate, then resample once
 		dat_start.append_zeros(len(dat_end))
-		#concatenate
 		dat_start[-len(dat_end):] = dat_end
-		dat = dat_start
+		dat = dat_start.resample(1/2048)
 	if np.any(np.isnan(dat.data)):
 		print("WARNING: Found NaNs in the data!")
 		print("GPS time:", gps_start)
