@@ -211,6 +211,89 @@ def numpy_matched_filter(
     return snr_ts
 
 
+class NumpyMatchedFilterBatch:
+    """Reuse a template batch and FFT input buffer across strain samples.
+
+    ``template`` is a complex128 array with shape ``(templates, kmax-kmin)``;
+    cutoffs satisfy ``0 <= kmin < kmax <= N`` and ``duration`` is positive.
+    Samples have the same shape, or one row to broadcast across templates.
+    Each call supplies its detector's PSD with shape ``(kmax-kmin,)``.
+
+    The conjugate and template power are computed once, while normalization
+    is recomputed for each PSD. Arithmetic follows ``numpy_matched_filter``
+    through its final complex64 rounding, and inputs remain unchanged.
+    Keep one instance per template batch; its reusable buffer means calls
+    on the same instance must not run concurrently.
+    """
+
+    def __init__(self, template, N, kmin, kmax, duration):
+        template = np.asarray(template)
+        self._shape = template.shape
+        self._N = N
+        self._kmin = kmin
+        self._kmax = kmax
+        self._delta_f = 1.0 / duration
+        self._template_conjugate = np.conjugate(template)
+        # Preserve np_weighted_inner's complex multiplication and rounding.
+        self._template_power = self._template_conjugate * template
+        self._fft_input = np.zeros((template.shape[0], N), dtype=np.complex128)
+
+    def _inverse_and_normalization(self, sample, psd):
+        """Compute the full inverse FFT and this detector's normalization."""
+        band = self._fft_input[:, self._kmin:self._kmax]
+        # Borrow the FFT input for normalization, then overwrite the band
+        # with correlation. The padding remains zero between calls.
+        np.divide(self._template_power, psd, out=band)
+        sq = np.sum(band, axis=1)
+        h_norm = np.real(sq) * (4.0 * self._delta_f)
+        template_norm = (
+            (4.0 * self._delta_f) / np.sqrt(h_norm)
+        ).astype(np.complex128).reshape((-1, 1))
+
+        np.multiply(self._template_conjugate, sample, out=band)
+        band /= psd
+        snr_ts = np.fft.ifft(self._fft_input)
+        return snr_ts, template_norm
+
+    def filter(self, sample, psd):
+        """Return the full complex64 SNR for one detector and its own PSD."""
+        snr_ts, template_norm = self._inverse_and_normalization(sample, psd)
+        snr_ts *= self._N
+        snr_ts *= template_norm
+        return snr_ts.astype(np.complex64)
+
+    def filter_magnitude(self, sample, psd, start, stop, out=None):
+        """Return float32 magnitudes for the sample interval [start, stop).
+
+        Indices satisfy ``0 <= start <= stop <= N``. ``out``, if supplied,
+        is a writable float32 array of shape ``(templates, stop-start)``;
+        noncontiguous destinations are supported and returned directly.
+        The inverse FFT still spans all N samples. Normally only retained
+        samples are scaled and rounded to complex64 before taking absolute
+        values. Singleton intervals retain the original full-series layout
+        to preserve NumPy's magnitude rounding across multiple templates.
+        """
+        if out is None:
+            out = np.empty((self._shape[0], stop - start), dtype=np.float32)
+
+        if stop - start == 1 and self._shape[0] > 1:
+            out[...] = np.abs(self.filter(sample, psd)[:, start:stop])
+            return out
+
+        snr_ts, template_norm = self._inverse_and_normalization(sample, psd)
+        retained = snr_ts[:, start:stop]
+        retained *= self._N
+        retained *= template_norm
+        rounded = retained.astype(np.complex64)
+        # Strided output can select a different absolute-value kernel in
+        # NumPy 1, so match the reference's contiguous result before copying.
+        if out.flags.c_contiguous:
+            np.absolute(rounded, out=out)
+        else:
+            out[...] = np.absolute(rounded)
+        return out
+
+
 def mf_in_place(
     sample: np.ndarray, 
     psd: np.ndarray, 
