@@ -384,6 +384,18 @@ detector_snr_threshold = 4
 #but the first template chosen will be guaranteed to have a high overlap with the waveform.
 templates_per_waveform = 1
 
+#training-noise options, off by default
+#noise_bank_frac: fraction of noise samples that get random bank templates; the rest copy the templates of a random
+#signal sample. Signal templates are matched to the injection, so they follow the signal chirp-mass distribution,
+#while random bank templates follow the bank's. With 1 (old behaviour) the network can tell noise from signal by the
+#template alone; with 0 noise templates follow the signal distribution.
+noise_bank_frac = 1.0
+#noise_shift: time-shift clean noise samples in asyncSNR_np.py (see noise_utils.shift_noise_windows). Here it only
+#widens the glitch-free margin after the sample centre by noise_shift_range, the largest shift in seconds (+-),
+#so shifted windows stay glitch-free.
+noise_shift = False
+noise_shift_range = 1.0
+
 fd_approximant = "TaylorF2"
 #when we select templates to match with the waveform, we select from a distribution of templates, but have to ensure
 #that the template has at least some overlap with the waveform. for BBH signals you can use a width up to 0.05-0.1,
@@ -505,6 +517,9 @@ if config_file:
             noise_dir = None
         noise_type = config['noise_type']
         templates_per_waveform = config['templates_per_waveform']
+        noise_bank_frac = config.get('noise_bank_frac', 1.0)
+        noise_shift = config.get('noise_shift', False)
+        noise_shift_range = config.get('noise_shift_range', 1.0)
         td_approximant = config['td_approximant']
         fd_approximant = config['fd_approximant']
         f_lower = config['f_lower']
@@ -992,12 +1007,19 @@ if noise_type == "Real":
         glitchy_freqs[ifo] = []
 
     for ifo in detectors:
-        if noise_segments is None:
-            glitchy, glitchless, freq, glitch_snr = get_glitchy_times(noise_dir+"/{}_glitches.npy".format(ifo),
-                                            duration, valid_times, max_waveform_length, glitch_SNR_threshold, f_lower, seconds_before, seconds_after)
+        if noise_shift:
+            #noise_shift reads up to 0.5 s (half buffer) + noise_shift_range past the centre before the 2 s window: keep that glitch-free too
+            #(before the centre the glitch-free stretch already covers seconds_before + max_waveform_length)
+            glitch_dir = noise_dir if noise_segments is None else "/fred/oz016/alistair/Omicron_all"
+            glitchy, glitchless, freq, glitch_snr = get_glitchy_times(glitch_dir+"/{}_glitches.npy".format(ifo),
+                                            duration, valid_times, max_waveform_length, glitch_SNR_threshold, f_lower, seconds_before, seconds_after + int(np.ceil(0.5 + noise_shift_range)))
         else:
-            glitchy, glitchless, freq, glitch_snr = get_glitchy_times("/fred/oz016/alistair/Omicron_all/{}_glitches.npy".format(ifo),
-                                            duration, valid_times, max_waveform_length, glitch_SNR_threshold, f_lower, seconds_before, seconds_after)
+            if noise_segments is None:
+                glitchy, glitchless, freq, glitch_snr = get_glitchy_times(noise_dir+"/{}_glitches.npy".format(ifo),
+                                                duration, valid_times, max_waveform_length, glitch_SNR_threshold, f_lower, seconds_before, seconds_after)
+            else:
+                glitchy, glitchless, freq, glitch_snr = get_glitchy_times("/fred/oz016/alistair/Omicron_all/{}_glitches.npy".format(ifo),
+                                                duration, valid_times, max_waveform_length, glitch_SNR_threshold, f_lower, seconds_before, seconds_after)
         glitchless_times[ifo] = glitchless
         glitchy_times[ifo] = glitchy
         glitchy_freqs[ifo] = freq
@@ -1427,6 +1449,14 @@ if n_noise_samples > 0:
     noise_p['overlaps'] = np.zeros(shape=(n_noise_samples, templates_per_waveform))  # This is dummy data so it saves correctly
     noise_p['injection'] = np.zeros(n_noise_samples, dtype = bool)
     noise_p['template_waveforms'] = np.random.randint(0, len(template_bank_params), size=(n_noise_samples,templates_per_waveform))
+    if noise_bank_frac < 1:
+        #copy the templates of a random signal sample of this job, so noise templates follow the signal templates.
+        #separate generator: the global random stream (and so every other noise parameter) is the same for any noise_bank_frac
+        frac_rng = np.random.default_rng(seed)
+        copy = frac_rng.uniform(size=n_noise_samples) >= noise_bank_frac
+        src = frac_rng.integers(0, len(good_params_dict['template_waveforms']), size=copy.sum())
+        noise_p['template_waveforms'][copy] = good_params_dict['template_waveforms'][src]
+        print(f"noise templates: {copy.sum()} of {n_noise_samples} copied from signal samples, the rest random from the bank")
     templates = []
     noise_p['d_eff'] = np.zeros(n_noise_samples)
     noise_p['eccentricity'] = np.zeros(n_noise_samples)

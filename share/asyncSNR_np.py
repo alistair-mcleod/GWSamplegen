@@ -8,6 +8,7 @@ import json
 import numpy as np
 from GWSamplegen.snr_utils_np import numpy_matched_filter, np_get_cutoff_indices
 from GWSamplegen.noise_utils import get_valid_noise_times, load_noise, fetch_noise_loaded, load_psd, get_data_from_OzStar, psd_preceding, load_psds_from_txt
+from GWSamplegen.noise_utils import shift_noise_windows
 from GWSamplegen.chisq_utils_np import reduced_chisquared_precomputed_SNR
 from GWSamplegen.waveform_utils import maximum_f_lower, select_approximant
 
@@ -152,9 +153,20 @@ def run_batch(n):
 			#multiply by the reduced chisquared time series
 			x *= reduced_chisquared_precomputed_SNR(x, t_templates, strain_np, psds[ifo], kmin, kmax, delta_f, num_bins = n_chisq_bins)
 
-		ret[ifo] = x[:,len(x[0])//2-seconds_before*sample_rate+offset:len(x[0])//2+seconds_after*sample_rate+offset]
+		if noise_shift:
+			#wider cut; shift_noise_windows picks the final 2 s windows
+			ret[ifo] = x[:,len(x[0])//2-SHIFT_PRE+offset:len(x[0])//2+SHIFT_POST+offset]
+		else:
+			ret[ifo] = x[:,len(x[0])//2-seconds_before*sample_rate+offset:len(x[0])//2+seconds_after*sample_rate+offset]
 		del strain_np, x
 		gc.collect()
+	if noise_shift:
+		#per template row: clean noise sample (no injection, no placed glitch) and a seeded coin for the moved detector
+		rows = [(n + i, j) for i in range(samples_per_batch) for j in range(n_templates)]
+		clean = [not params["injection"][s] and not any(params[ifo + "_glitch"][s] for ifo in ifos) for s, _ in rows]
+		moved = [int(np.random.default_rng([seed, n_templates * s + j]).integers(2)) for s, j in rows]
+		ret = shift_noise_windows(ret, ifos, clean, moved, SHIFT_PRE, seconds_before * sample_rate, seconds_after * sample_rate,
+								  SHIFT_STEP, N_SHIFT, SHIFT_OFFSET, SHIFT_TRIES, sample_rate)
 	return ret
 
 def create_memmap_file(file_path, shape, dtype=np.float32, data_type='SNR'):
@@ -247,6 +259,15 @@ if __name__ == "__main__":
 				save_spectrograms = config['save_spectrograms']
 			else:
 				save_spectrograms = False
+			#noise_shift: for clean noise samples (no injection, no placed glitch), shift one detector against the other and
+			#keep the loudest shift under the search's zero-lag rule (noise_utils.shift_noise_windows). Training noise then has
+			#the louder, more coincident peaks the search background has. False = old behaviour.
+			#noise_shift_step: shift step in seconds. 0.05 s keeps the fraction of coincident peaks closest to the search
+			#background (0.39 vs 0.46 in tests); 0.1-0.2 s steps lowered both the coincident fraction and the SNR.
+			#noise_shift_range: largest shift in seconds of one detector against the other (+-).
+			noise_shift = config.get('noise_shift', False)
+			noise_shift_step = config.get('noise_shift_step', 0.05)
+			noise_shift_range = config.get('noise_shift_range', 1.0)
 			
 		for key, value in config.items():
 			print(key, value)
@@ -297,6 +318,19 @@ if __name__ == "__main__":
 
 	samples_per_batch = min(100//(config['templates_per_waveform']),40)
 	print("SAMPLES_PER_BATCH:",samples_per_batch)
+
+	if noise_shift:
+		if len(ifos) != 2:
+			raise ValueError("noise_shift needs exactly two detectors")
+		SHIFT_STEP = int(round(noise_shift_step * sample_rate))
+		N_SHIFT = int(round(noise_shift_range / noise_shift_step))
+		SHIFT_OFFSET = int(round(20 * sample_rate / 2048))  #get_zerolags offset: 20 samples at 2048 Hz
+		SHIFT_TRIES = 20  #1 s buffers tried, moving back from the centre
+		#SNR kept around the centre: earliest buffer, largest shift and the window around its peak (all inside the
+		#glitch-free stretch, which reaches seconds_before + 100 s before the centre and is widened after it in generate_configs)
+		SHIFT_PRE = sample_rate // 2 + (SHIFT_TRIES - 1) * sample_rate + N_SHIFT * SHIFT_STEP + seconds_before * sample_rate + SHIFT_OFFSET + 1
+		SHIFT_POST = sample_rate // 2 + N_SHIFT * SHIFT_STEP + seconds_after * sample_rate + SHIFT_OFFSET + 1
+		print(f"noise shift: {SHIFT_STEP} samples x +-{N_SHIFT}, secondary +-{SHIFT_OFFSET} samples, up to {SHIFT_TRIES} buffers")
 
 	###################################################load noise segments
 	if noise_segments is None:

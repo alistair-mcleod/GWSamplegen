@@ -30,3 +30,13 @@ Currently, the job submission scripts are currently written with Slurm syntax, a
 #### Noise availability
 
 While this repository does work Gaussian noise, it is primarily designed to work with real LIGO noise. If you do not have LIGO noise already available, use the `fetch_noise.py` script to download desired segments of LIGO data. 
+
+#### Eccentric template banks (`eccentric` branch)
+
+SEOBNRv5EHM/SEOBNRv6EHM eccentric injections and templates, stochastic eccentric bank generation and a template metric for faster template selection are in the `eccentric` branch.
+To build a stochastic SEOBNRv5EHM bank, run `python share/build_eccentric_bank.py config.json` with `--submit` or `--local`. Config masses are detector-frame Msun, frequencies in Hz, the PSD/ASD in SI units, and relative paths resolve from the JSON file. `--dry-run` only checks the settings and `--resume` reuses unfinished work.
+The chain is place -> merge -> metric -> finalize, and the output directory gets `bank.hdf`, `bank.log` and `bank.err`.
+Metrics need pyseobnr 0.3.6 and the source directory given by `metric_source_dir`. Optionally build the faster arithmetic once with `python setup_sensitivity.py build_ext --inplace`.
+Banks with missing or partly invalid metrics fall back to the legacy template selection.
+Run one workflow per output directory, and stop the old jobs before using `--resume`.
+`GWSamplegen/_metric` is derived from pySEOBNR and is licensed GPL-3.0-or-later; the rest of the repository stays MIT.
