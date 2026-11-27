@@ -26,6 +26,7 @@ from pathlib import Path
 from importlib import resources as impresources
 from GWSamplegen import segments
 import h5py
+from scipy.ndimage import maximum_filter1d
 from gwpy.timeseries import TimeSeries as GWPYTimeSeries
 
 #TODO: handle arbitrary groups of interferometers. Assume each noise file in a dir has the same ifos
@@ -1001,3 +1002,42 @@ def gps_to_run(gps_time):
 		return "O4b"
 	else:
 		return None
+
+
+def shift_noise_windows(wide, ifos, clean, moved, centre, before, after, step, n_shift, offset, tries, sample_rate):
+	#Relative time shift for clean training-noise rows (noise_shift in asyncSNR_np.py), so training noise looks like
+	#the search background. For each clean row, detector ifos[moved[r]] is shifted against the other in steps of `step`
+	#samples over +-n_shift steps. Per shift the search's zero-lag rule is applied to a 1 s buffer around `centre`:
+	#primary = a detector's peak (>= 4), secondary = the other detector's max within +-offset samples. The loudest shift
+	#is kept and both windows (`before` + `after` samples) are centred on its primary peak. If no shift reaches 4, the
+	#buffer moves 1 s earlier, up to `tries` buffers, and if none does the central window is kept. Other rows keep the
+	#central window. wide: {ifo: SNR rows, cut wide enough for every buffer and shift}.
+	shifts = np.arange(-n_shift, n_shift + 1) * step  #moved detector read at i - shift
+	out = {ifo: wide[ifo][:, centre - before:centre + after].copy() for ifo in ifos}
+	for r in np.flatnonzero(clean):
+		mv = moved[r]
+		fx = 1 - mv
+		a = np.abs(wide[ifos[fx]][r]).astype(np.float32)
+		b = np.abs(wide[ifos[mv]][r]).astype(np.float32)
+		sa = maximum_filter1d(a, size=2 * offset + 1, mode="constant", cval=0.0)
+		sb = maximum_filter1d(b, size=2 * offset + 1, mode="constant", cval=0.0)
+		for k in range(tries):
+			b0 = centre - sample_rate // 2 - k * sample_rate  #buffer start, fixed detector frame
+			tf = b0 + int(a[b0:b0 + sample_rate].argmax())
+			pf = a[tf]
+			seg = b[(b0 - shifts)[:, None] + np.arange(sample_rate)[None, :]]  #moved detector's buffer for every shift
+			tm = b0 + seg.argmax(axis=1)
+			pm = seg.max(axis=1)
+			net_m = np.where(pm >= 4, np.sqrt(pm ** 2 + sa[tm] ** 2), 0.0)
+			net_f = np.where(pf >= 4, np.sqrt(pf ** 2 + sb[tf - shifts] ** 2), 0.0)
+			net = np.maximum(net_m, net_f)
+			best = int(net.argmax())
+			if net[best] > 0:
+				break
+		if net[best] > 0:
+			sh, p = shifts[best], (tf if net_f[best] > net_m[best] else int(tm[best]))
+		else:
+			sh, p = 0, centre  #never reached 4: keep the central window
+		out[ifos[fx]][r] = wide[ifos[fx]][r, p - before:p + after]
+		out[ifos[mv]][r] = wide[ifos[mv]][r, p - sh - before:p - sh + after]
+	return out
